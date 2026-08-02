@@ -57,6 +57,71 @@ reviews:
         query history, and anything that reads as criticism of Perplexity.
         Differences in ordering are described as a trade-off, not a defect.
 
+  pre_merge_checks:
+    custom_checks:
+      - name: Perplexity terms of service
+        mode: warning
+        instructions: >-
+          Check whether the changes in this pull request could put the project
+          outside Perplexity's API Terms of Service or Usage Policy, published
+          at https://www.perplexity.ai/hub/legal/perplexity-api-terms-of-service
+          and https://www.perplexity.ai/hub/legal/usage-policy. This is a
+          best-effort review by a machine, not legal advice, and the published
+          terms are the authority whenever they and this description differ.
+
+
+          FAIL, and name the file and line, if the diff introduces any of the
+          following.
+
+
+          1. Attribution. Answer text is shown to a user without the sources it
+          came from, or `search_results` / `citations` are dropped, hidden, or
+          reordered such that the inline [1], [2] markers no longer point at the
+          right source.
+
+
+          2. Redistribution. Responses are published, exported as a dataset,
+          served to third parties, or otherwise passed beyond the local history
+          in `promptiplex.db`.
+
+
+          3. Model training. Stored responses are used to train, fine-tune,
+          distil, or benchmark a model, or to seed a substitute for the search
+          service.
+
+
+          4. Request volume and billing. Retry loops, background polling,
+          speculative prefetching, request fan-out, parallel or rotating API
+          keys, or anything else that raises request volume without a user
+          action behind it. One request per user action is the repo's rule.
+
+
+          5. Access path. Requests to Perplexity endpoints other than the
+          documented API — scraping perplexity.ai, driving the web app, or
+          reverse-engineering an undocumented endpoint.
+
+
+          6. Credentials. An API key committed, logged, placed in an error
+          message, shipped into client-side code, or shared between accounts;
+          or the server binding anything other than 127.0.0.1 without
+          authentication, which would let others spend the key.
+
+
+          7. Presentation. Generated answers presented as human-written or as
+          verified fact, or the project presented as a Perplexity product,
+          affiliate, or endorsee.
+
+
+          8. Prohibited use. Features whose purpose is to collect personal data
+          about individuals, conduct surveillance, or generate spam,
+          impersonation, or deliberate misinformation.
+
+
+          PASS if none of the above appear. Documentation, tests, refactors, and
+          UI work that leave request behaviour and source display unchanged
+          should pass. Where the reading is genuinely unclear, pass and note the
+          uncertainty for a human rather than failing.
+
   tools:
     languagetool:
       enabled: true

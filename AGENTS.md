@@ -122,6 +122,24 @@ so in the thread.
 Merging is the maintainer's call. An agent does not merge its own pull request
 unless asked to.
 
+### The terms-of-service pre-merge check
+
+`.coderabbit.yaml` defines one custom pre-merge check that reads the diff
+against Perplexity's [API Terms of
+Service](https://www.perplexity.ai/hub/legal/perplexity-api-terms-of-service)
+and [Usage Policy](https://www.perplexity.ai/hub/legal/usage-policy). It looks
+for the things a code change could plausibly get wrong: dropped source
+attribution, redistribution of responses, using stored answers to train a model,
+request volume that no user action asked for, undocumented access paths, exposed
+credentials, and misrepresenting either the answers or this project's
+relationship to Perplexity.
+
+It runs as a warning rather than a merge blocker, and it is a machine reading a
+diff — not legal advice, and no substitute for the published terms, which are
+the authority and which change without this file changing. A pass means nothing
+obvious was spotted. If it flags something, treat it as a question for the
+maintainer rather than a comment to argue with.
+
 ## Architecture
 
 Next.js App Router for the UI, SQLite for spaces and history.
