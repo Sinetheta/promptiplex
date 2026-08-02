@@ -1,0 +1,46 @@
+{
+  "name": "promptiplex",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Applies your standing context to a Perplexity query before the search is planned.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Sinetheta/promptiplex.git"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "next dev -H 127.0.0.1",
+    "build": "next build",
+    "start": "next start -H 127.0.0.1",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "verify": "node --env-file-if-exists=.env --import tsx scripts/verify.mts",
+    "ask": "node --env-file-if-exists=.env --import tsx scripts/ask.mts",
+    "test": "node --import tsx --test tests/*.test.mts",
+    "check": "npm run typecheck && npm run lint && npm test"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.2",
+    "next": "16.2.12",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.12",
+    "tailwindcss": "^4",
+    "tsx": "^4.23.1",
+    "typescript": "^5"
+  }
+}

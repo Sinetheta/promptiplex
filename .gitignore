@@ -1,0 +1,68 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+!.env.example
+
+# local database
+promptiplex.db
+promptiplex.db-shm
+promptiplex.db-wal
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# Your workspace. Never committed, so nothing here has to be fit for the public
+# repo: plans, notes, scratch scripts, agent transcripts, probe output.
+# See AGENTS.md — "Keep opinions out of the repo".
+specs/
+
+# Local search providers. PROMPTIPLEX_PROVIDER_MODULE can point anywhere; this
+# is the conventional place to keep one that is yours alone.
+# See src/lib/search/index.ts.
+local/
+
+# Agent instructions specific to your checkout, layered over AGENTS.md.
+AGENTS.local.md
+*.local.md
+
+# Personal tool config. The shared, opinion-free versions are committed;
+# anything *.local.* is yours alone.
+.claude/settings.local.json
+.claude/*.local.json
+.vscode/
+.idea/
