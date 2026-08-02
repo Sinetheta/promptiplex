@@ -86,6 +86,60 @@ npm run check                # typecheck + lint + test
 model (default `sonar`). `PROMPTIPLEX_PROVIDER_MODULE` swaps the provider
 entirely.
 
+## Branches and review
+
+Feature work happens on a branch off `main`, and reaches GitHub as one pull
+request carrying a batch of finished work. CodeRabbit reviews every pull request
+against `main` (configured in `.coderabbit.yaml`); its reviews are rate-limited,
+so a stream of small pushes buys less feedback than one substantial one.
+
+The loop an agent runs on its own:
+
+1. **Branch.** `git checkout -b <topic>` before the first edit. Never commit to
+   `main`.
+2. **Work locally until there is nothing left to learn without pushing.**
+   Nothing is pushed while the work is still in pieces.
+3. **Validate.** `npm run check` — typecheck, lint, tests. Everything that can
+   be caught locally is caught locally, because a review spent on a type error
+   is a review not spent on the design.
+4. **Push and open the pull request.** `git push -u origin <topic>` then
+   `gh pr create`. This is the first push of the branch.
+5. **Wait for the review.** No webhook is needed: poll with
+   `gh pr view --comments` / `gh api` until CodeRabbit's review lands. Space the
+   checks out; a review takes minutes, not seconds.
+6. **Read every comment and decide.** Reviews are offered in good faith and
+   most are worth acting on, but not all of them are right about this codebase.
+   Apply what holds, and reply on the thread explaining why when declining —
+   the reasoning is the useful part of the record.
+7. **Push the follow-up as one commit or a small set**, for the same reason as
+   step 2.
+
+Judgement is the agent's to exercise. When a comment turns on a decision the
+repo has not settled — a trade-off in `AGENTS.md`, scope, or anything touching
+cost or credentials — leave it for the maintainer rather than guessing, and say
+so in the thread.
+
+Merging is the maintainer's call. An agent does not merge its own pull request
+unless asked to.
+
+### The terms-of-service pre-merge check
+
+`.coderabbit.yaml` defines one custom pre-merge check that reads the diff
+against Perplexity's [API Terms of
+Service](https://www.perplexity.ai/hub/legal/perplexity-api-terms-of-service)
+and [Usage Policy](https://www.perplexity.ai/hub/legal/usage-policy). It looks
+for the things a code change could plausibly get wrong: dropped source
+attribution, redistribution of responses, using stored answers to train a model,
+request volume that no user action asked for, undocumented access paths, exposed
+credentials, and misrepresenting either the answers or this project's
+relationship to Perplexity.
+
+It runs as a warning rather than a merge blocker, and it is a machine reading a
+diff — not legal advice, and no substitute for the published terms, which are
+the authority and which change without this file changing. A pass means nothing
+obvious was spotted. If it flags something, treat it as a question for the
+maintainer rather than a comment to argue with.
+
 ## Architecture
 
 Next.js App Router for the UI, SQLite for spaces and history.

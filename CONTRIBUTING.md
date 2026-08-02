@@ -69,9 +69,16 @@ Add to that set.
 
 ## Commits and pull requests
 
+- Work on a branch off `main`.
 - Explain *why* in the commit body when the reason is not obvious from the diff.
 - Run `npm run check` before pushing. CI runs the same thing.
 - Do not commit `promptiplex.db`, `.env`, or anything from `specs/` or `local/`.
+
+CodeRabbit reviews pull requests automatically; `.coderabbit.yaml` holds its
+configuration, including the per-path rules that mirror the constraints above.
+Its reviews are rate-limited, so a branch is pushed once the work is finished
+rather than a piece at a time. Agents working in this repo follow the same
+loop — see "Branches and review" in [AGENTS.md](AGENTS.md).
 
 ## This repo is public
 
