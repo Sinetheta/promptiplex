@@ -114,6 +114,27 @@ Source preferences are kept out of the query text on purpose. They travel as
 `search_domain_filter`, so the search is constrained rather than asked — and the
 tokens go to your actual question.
 
+## Conversations
+
+Questions asked in a space are kept together as a conversation, and a follow-up
+continues the one you are reading rather than starting again.
+
+The brief is compiled into the **first** question of a conversation and not into
+the ones after it. Sonar's endpoint is a chat completion, so a follow-up is sent
+as the exchange so far plus the new question — the first message already carries
+the brief, and restating it every turn would spend tokens re-establishing
+context that is right there in the request.
+
+Each turn can show the exact text that was sent, so what the brief did and did
+not add to it stays visible.
+
+Source preferences are not context, so they are applied to every turn.
+
+A conversation is one request per question, exactly like a standalone search.
+The turns sent with a follow-up are input tokens, so a long conversation costs
+more per question than a short one — the per-answer cost line shows this
+happening.
+
 ## Providers
 
 Searching sits behind one interface, `SearchProvider` in
@@ -131,6 +152,10 @@ const provider: SearchProvider = {
   label: "My provider",
   appliesFiltersNatively: false,
   async search({ query }) {
+    return { answerMarkdown: "…", sources: [], images: [], warnings: [] };
+  },
+  // Optional. Without it, the UI offers a new search instead of a follow-up.
+  async followUp({ question, turns }) {
     return { answerMarkdown: "…", sources: [], images: [], warnings: [] };
   },
 };

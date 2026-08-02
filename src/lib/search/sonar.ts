@@ -1,5 +1,6 @@
 import type { ResultImage, SearchUsage, Source } from "../types";
 import type {
+  FollowUpRequest,
   ProviderProgress,
   SearchAnswer,
   SearchProvider,
@@ -105,6 +106,34 @@ export function buildRequestBody(
 }
 
 /**
+ * The same request, with the exchange so far in front of the new question.
+ *
+ * Sonar's endpoint is a chat completion, so continuing a conversation is just a
+ * longer `messages` array — the first user message is the compiled query, brief
+ * included, which is why later questions are sent as they were typed.
+ *
+ * Exported so tests can assert the wire format without issuing a request.
+ */
+export function buildFollowUpBody(
+  req: FollowUpRequest,
+  model: string,
+  warnings: string[],
+): Record<string, unknown> {
+  const messages = req.turns.flatMap((t) => [
+    { role: "user", content: t.question },
+    { role: "assistant", content: t.answerMarkdown },
+  ]);
+  messages.push({ role: "user", content: req.question });
+
+  const body: Record<string, unknown> = { model, messages, return_images: true };
+
+  const domains = buildDomainFilter(req.filters.domainsAllow, req.filters.domainsDeny, warnings);
+  if (domains) body.search_domain_filter = domains;
+
+  return body;
+}
+
+/**
  * `search_results` carries titles and snippets; `citations` is a bare URL list
  * kept for older responses. The answer text numbers its citations `[1]`, `[2]`
  * against this order, so the order must be preserved exactly.
@@ -176,6 +205,59 @@ export function createSonarProvider(opts: SonarOptions): SearchProvider {
   const doFetch = opts.fetchImpl ?? fetch;
   const timeoutMs = opts.timeoutMs ?? 120_000;
 
+  /**
+   * One request per action — no retries. A failed call is reported, not
+   * silently attempted again on someone's metered key.
+   */
+  async function send(
+    body: Record<string, unknown>,
+    warnings: string[],
+    reqSignal: AbortSignal | undefined,
+    onProgress?: ProviderProgress,
+  ): Promise<SearchAnswer> {
+    onProgress?.(`asking ${model}`);
+
+    const timeout = AbortSignal.timeout(timeoutMs);
+    const signal = reqSignal ? AbortSignal.any([reqSignal, timeout]) : timeout;
+
+    let res: Response;
+    try {
+      res = await doFetch(endpoint, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${opts.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+        signal,
+      });
+    } catch (err) {
+      if ((err as Error).name === "TimeoutError") {
+        throw new Error(`Perplexity did not respond within ${timeoutMs / 1000}s.`);
+      }
+      throw new Error(`Could not reach the Perplexity API: ${(err as Error).message}`);
+    }
+
+    if (!res.ok) {
+      throw new Error(describeFailure(res.status, await res.text().catch(() => "")));
+    }
+
+    onProgress?.("reading answer");
+    const json = (await res.json()) as SonarResponse;
+    const answerMarkdown = (json.choices?.[0]?.message?.content ?? "").trim();
+    if (!answerMarkdown) {
+      throw new Error("Perplexity returned an empty answer.");
+    }
+
+    return {
+      answerMarkdown,
+      sources: parseSources(json),
+      images: parseImages(json),
+      warnings,
+      usage: parseUsage(json, model),
+    };
+  }
+
   return {
     id: "sonar",
     label: `Perplexity Sonar (${model})`,
@@ -183,51 +265,12 @@ export function createSonarProvider(opts: SonarOptions): SearchProvider {
 
     async search(req: SearchRequest, onProgress?: ProviderProgress): Promise<SearchAnswer> {
       const warnings: string[] = [];
-      const body = buildRequestBody(req, model, warnings);
+      return send(buildRequestBody(req, model, warnings), warnings, req.signal, onProgress);
+    },
 
-      // One request per action — no retries. A failed search is reported, not
-      // silently attempted again on someone's metered key.
-      onProgress?.(`asking ${model}`);
-
-      const timeout = AbortSignal.timeout(timeoutMs);
-      const signal = req.signal ? AbortSignal.any([req.signal, timeout]) : timeout;
-
-      let res: Response;
-      try {
-        res = await doFetch(endpoint, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${opts.apiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(body),
-          signal,
-        });
-      } catch (err) {
-        if ((err as Error).name === "TimeoutError") {
-          throw new Error(`Perplexity did not respond within ${timeoutMs / 1000}s.`);
-        }
-        throw new Error(`Could not reach the Perplexity API: ${(err as Error).message}`);
-      }
-
-      if (!res.ok) {
-        throw new Error(describeFailure(res.status, await res.text().catch(() => "")));
-      }
-
-      onProgress?.("reading answer");
-      const json = (await res.json()) as SonarResponse;
-      const answerMarkdown = (json.choices?.[0]?.message?.content ?? "").trim();
-      if (!answerMarkdown) {
-        throw new Error("Perplexity returned an empty answer.");
-      }
-
-      return {
-        answerMarkdown,
-        sources: parseSources(json),
-        images: parseImages(json),
-        warnings,
-        usage: parseUsage(json, model),
-      };
+    async followUp(req: FollowUpRequest, onProgress?: ProviderProgress): Promise<SearchAnswer> {
+      const warnings: string[] = [];
+      return send(buildFollowUpBody(req, model, warnings), warnings, req.signal, onProgress);
     },
   };
 }

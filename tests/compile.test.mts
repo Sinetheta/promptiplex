@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { compile } from "../src/lib/compile";
+import { compile, compileFollowUp } from "../src/lib/compile";
 import type { Space } from "../src/lib/types";
 
 function space(over: Partial<Space> = {}): Space {
@@ -106,3 +106,28 @@ test("warns on an empty question", () => {
   assert.match(c.warnings.join(" "), /question is empty/i);
 });
 
+
+test("a follow-up is sent as typed, without the brief in front of it", () => {
+  const s = space({ brief: "Minecraft Java 1.21", queryTemplate: "T: {q}" });
+  const c = compileFollowUp(s, "  what about ducks?  ");
+
+  // The brief steered the first search of the conversation and travels with it
+  // in the exchange. Repeating it here would spend tokens restating context the
+  // provider can already see.
+  assert.equal(c.text, "what about ducks?");
+  assert.deepEqual(c.parts, [{ label: "follow-up", text: "what about ducks?" }]);
+  assert.ok(!c.text.includes("Context:"));
+  assert.ok(!c.text.includes("T:"));
+});
+
+test("a follow-up still carries the space's source preferences", () => {
+  const s = space({ domainsAllow: ["https://www.minecraft.wiki/w/"], domainsDeny: ["-b.com"] });
+  const c = compileFollowUp(s, "and ducks?");
+
+  // Preferences are a filter applied to every search, not context to restate.
+  assert.deepEqual(c.filters, { domainsAllow: ["minecraft.wiki"], domainsDeny: ["b.com"] });
+});
+
+test("warns about an empty follow-up, as it does for an opening question", () => {
+  assert.match(compileFollowUp(space(), "   ").warnings.join(" "), /empty/);
+});

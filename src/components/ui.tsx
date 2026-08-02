@@ -68,6 +68,23 @@ export function Button({
   );
 }
 
+/**
+ * SQLite writes timestamps as UTC `YYYY-MM-DD HH:MM:SS[.mmm]`, which is neither
+ * a date a browser parses nor one worth reading. Rendered in local time, and
+ * relatively while it is still recent, which is when it is actually useful.
+ */
+export function formatWhen(stamp: string): string {
+  const at = new Date(`${stamp.replace(" ", "T")}Z`);
+  if (Number.isNaN(at.getTime())) return stamp;
+
+  const seconds = (Date.now() - at.getTime()) / 1000;
+  if (seconds < 60) return "just now";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h ago`;
+  if (seconds < 7 * 86_400) return `${Math.floor(seconds / 86_400)}d ago`;
+  return at.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 /** Comma/newline separated list editor, rendered back as chips. */
 export function DomainList({
   value,

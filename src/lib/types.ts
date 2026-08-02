@@ -95,10 +95,39 @@ export type QueryRecord = {
   spaceId: number | null;
   spaceName: string | null;
   spaceIcon: string | null;
+  conversationId: number | null;
+  /** 1-based position within the conversation. */
+  turn: number;
   question: string;
   compiled: CompiledQuery;
   result: QueryResult | null;
   error: string | null;
   durationMs: number;
   createdAt: string;
+};
+
+/**
+ * A run of questions asked against one Space, in order.
+ *
+ * The first question is compiled with the Space's brief in front of it. Later
+ * questions are not: the earlier turns are sent with them, so the context is
+ * already in the exchange and repeating it would only spend tokens restating
+ * what the provider can already see.
+ */
+export type Conversation = {
+  id: number;
+  spaceId: number | null;
+  spaceName: string | null;
+  spaceIcon: string | null;
+  title: string;
+  /**
+   * Where the provider keeps this exchange, when it keeps one of its own.
+   * Empty for providers that are stateless between requests, which is the
+   * usual case — those are continued by resending the turns.
+   */
+  threadUrl: string;
+  provider: string;
+  turnCount: number;
+  createdAt: string;
+  updatedAt: string;
 };

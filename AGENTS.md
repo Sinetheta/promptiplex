@@ -66,6 +66,13 @@ cannot apply at once, so the context lives here, in the query Promptiplex
 builds. The organisational side — naming, grouping, history — is ours to build,
 simply because it has to live wherever the context lives.
 
+**Conversations are the same story one level up.** Questions asked in a space
+are kept together, and a follow-up continues the exchange. The brief is compiled
+into the first question only: the earlier turns are sent with a follow-up, so
+the context is already in the request, and repeating it would spend tokens
+restating what is there. Source preferences are not context and are applied to
+every turn.
+
 **This may stop being necessary.** If Perplexity ever applies space instructions
 before retrieval, the reason for this project largely goes away. That would be a
 good outcome — do not build things that only make sense while the orderings
@@ -150,6 +157,7 @@ src/lib/search/sonar.ts     Perplexity API: request shaping, response parsing.
 src/lib/search/index.ts     Provider resolution, including PROMPTIPLEX_PROVIDER_MODULE.
 src/lib/compile.ts          Space + question -> query + filters. Pure substitution.
 src/lib/db.ts               SQLite schema and queries.
+src/app/api/query/route.ts  Opens a conversation, or adds a turn to one.
 scripts/ask.mts             One query from the terminal.
 scripts/verify.mts          Live health check. Costs one query.
 tests/                      Pure-function tests. Must never touch the network.
@@ -177,6 +185,10 @@ between them is `CompiledQuery`.
   the history. Before writing a file, assume a stranger will read it: no keys,
   no absolute paths from one machine, no query history, no screenshots, no
   agent transcripts. Those go in `specs/`, which is gitignored.
+- **The brief goes in the first turn of a conversation, not every turn.** A
+  follow-up is sent with the earlier turns, so the context is already present.
+  Recompiling it each time is a bill for repeating yourself. `compileFollowUp`
+  in `compile.ts` is deliberately the smaller of the two.
 - **Source preferences are a filter, not prose.** They are carried in
   `CompiledQuery.filters` and applied by the provider. Do not concatenate them
   into the query text for a provider that can apply them properly — that spends
