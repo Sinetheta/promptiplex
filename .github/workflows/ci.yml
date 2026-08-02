@@ -3,7 +3,20 @@ name: CI
 on:
   push:
     branches: [main]
+  # `pull_request`, never `pull_request_target`: a fork's job gets no secrets
+  # and a read-only token, so a pull request cannot reach anything of the
+  # maintainer's. `pull_request_target` would hand it both.
   pull_request:
+
+# The job only needs to read the code it is checking. Stated here rather than
+# relied on from the repository default, so the default cannot loosen it.
+permissions:
+  contents: read
+
+# A pull request that is pushed to repeatedly should not queue up runs.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   check:
