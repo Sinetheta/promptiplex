@@ -19,6 +19,7 @@
     "typecheck": "tsc --noEmit",
     "verify": "node --env-file-if-exists=.env --import tsx scripts/verify.mts",
     "ask": "node --env-file-if-exists=.env --import tsx scripts/ask.mts",
+    "spaces": "node --env-file-if-exists=.env --import tsx scripts/spaces.mts",
     "test": "node --import tsx --test tests/*.test.mts",
     "check": "npm run typecheck && npm run lint && npm test"
   },
