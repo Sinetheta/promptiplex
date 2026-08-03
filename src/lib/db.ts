@@ -381,49 +381,64 @@ export function deleteConversation(id: number): void {
   })();
 }
 
-export function nextTurn(conversationId: number): number {
-  const row = connect()
-    .prepare("SELECT COALESCE(MAX(turn), 0) AS n FROM queries WHERE conversation_id = ?")
-    .get(conversationId) as { n: number };
-  return row.n + 1;
-}
-
+/**
+ * Records one turn and reports where it landed.
+ *
+ * The turn number is derived **inside the insert** rather than passed in. A
+ * question takes as long as the provider takes to answer it, so a caller that
+ * read `MAX(turn)` before asking and wrote the row afterwards would be holding
+ * a number that went stale mid-request: two questions sent to one conversation
+ * inside that window would both claim the same position. Deriving it in the
+ * statement makes the read and the write a single operation.
+ */
 export function recordQuery(args: {
   spaceId: number | null;
   conversationId: number | null;
-  turn: number;
   question: string;
   compiled: CompiledQuery;
   result: QueryResult | null;
   error: string | null;
   durationMs: number;
-}): number {
+}): { id: number; turn: number } {
   const conn = connect();
-  const info = conn
-    .prepare(
-      `INSERT INTO queries
-         (space_id, conversation_id, turn, question, compiled, result, error, duration_ms)
-       VALUES (?,?,?,?,?,?,?,?)`,
-    )
-    .run(
-      args.spaceId,
-      args.conversationId,
-      args.turn,
-      args.question,
-      JSON.stringify(args.compiled),
-      args.result ? JSON.stringify(args.result) : null,
-      args.error,
-      args.durationMs,
-    );
 
-  // Sorting conversations by recency is the whole point of the sidebar, so a
-  // failed turn bumps the conversation too — it is still something that happened.
-  if (args.conversationId) {
-    conn
-      .prepare(`UPDATE conversations SET updated_at = ${NOW} WHERE id = ?`)
-      .run(args.conversationId);
-  }
-  return Number(info.lastInsertRowid);
+  return conn.transaction(() => {
+    const info = conn
+      .prepare(
+        `INSERT INTO queries
+           (space_id, conversation_id, turn, question, compiled, result, error, duration_ms)
+         VALUES (
+           ?, ?,
+           (SELECT COALESCE(MAX(turn), 0) + 1 FROM queries WHERE conversation_id = ?),
+           ?, ?, ?, ?, ?
+         )`,
+      )
+      .run(
+        args.spaceId,
+        args.conversationId,
+        args.conversationId,
+        args.question,
+        JSON.stringify(args.compiled),
+        args.result ? JSON.stringify(args.result) : null,
+        args.error,
+        args.durationMs,
+      );
+
+    const id = Number(info.lastInsertRowid);
+
+    // Sorting conversations by recency is the whole point of the sidebar, so a
+    // failed turn bumps the conversation too — it is still something that happened.
+    if (args.conversationId) {
+      conn
+        .prepare(`UPDATE conversations SET updated_at = ${NOW} WHERE id = ?`)
+        .run(args.conversationId);
+    }
+
+    const { turn } = conn.prepare("SELECT turn FROM queries WHERE id = ?").get(id) as {
+      turn: number;
+    };
+    return { id, turn };
+  })();
 }
 
 type QueryRow = {

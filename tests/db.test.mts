@@ -22,7 +22,6 @@ const {
   getConversation,
   listConversations,
   listTurns,
-  nextTurn,
   setConversationThread,
   deleteConversation,
   titleFor,
@@ -70,10 +69,9 @@ test("lists spaces case-insensitively by name", () => {
 
 test("records a successful query and reads it back", () => {
   const s = createSpace(input({ name: "Q" }));
-  const id = recordQuery({
+  const { id } = recordQuery({
     spaceId: s.id,
     conversationId: null,
-    turn: 1,
     question: "chickens?",
     compiled: { text: "Context: c\n\nchickens?", parts: [], warnings: [], filters: { domainsAllow: [], domainsDeny: [] } },
     result: { answer: "feed seeds", sources: [], images: [], provider: "sonar", usage: { model: "sonar", inputTokens: 12, outputTokens: 30, searchQueries: 2, costUsd: 0.0061 } },
@@ -95,7 +93,6 @@ test("records a failed query so history shows attempts, not just successes", () 
   recordQuery({
     spaceId: s.id,
     conversationId: null,
-    turn: 1,
     question: "x",
     compiled: { text: "x", parts: [], warnings: [], filters: { domainsAllow: [], domainsDeny: [] } },
     result: null,
@@ -112,7 +109,6 @@ test("keeps a deleted space's queries, detaching them", () => {
   recordQuery({
     spaceId: s.id,
     conversationId: null,
-    turn: 1,
     question: "kept?",
     compiled: { text: "kept?", parts: [], warnings: [], filters: { domainsAllow: [], domainsDeny: [] } },
     result: null,
@@ -132,7 +128,6 @@ test("returns queries newest first", () => {
     recordQuery({
       spaceId: s.id,
       conversationId: null,
-      turn: 1,
       question: q,
       compiled: { text: q, parts: [], warnings: [], filters: { domainsAllow: [], domainsDeny: [] } },
       result: null,
@@ -185,7 +180,6 @@ function addTurn(spaceId: number, conversationId: number, question: string, repl
   return recordQuery({
     spaceId,
     conversationId,
-    turn: nextTurn(conversationId),
     question,
     compiled: compiled(question),
     result: answer(reply),
@@ -220,12 +214,43 @@ test("reads a conversation's turns back in the order they were asked", () => {
   assert.equal(getConversation(c.id)!.turnCount, 3);
 });
 
-test("counts the next turn from what is already recorded", () => {
+test("allocates the turn number at insert time, not from a caller's count", () => {
   const s = createSpace(input({ name: "Counting" }));
   const c = createConversation({ spaceId: s.id, title: "q" });
-  assert.equal(nextTurn(c.id), 1);
-  addTurn(s.id, c.id, "q", "a");
-  assert.equal(nextTurn(c.id), 2);
+
+  assert.equal(addTurn(s.id, c.id, "q1", "a1").turn, 1);
+  assert.equal(addTurn(s.id, c.id, "q2", "a2").turn, 2);
+
+  // The position is derived inside the statement, so interleaved writes cannot
+  // both claim it — which is what a caller reading MAX(turn) before a slow
+  // provider request and writing afterwards would do.
+  const many = Array.from({ length: 5 }, (_, i) => addTurn(s.id, c.id, `q${i}`, "a").turn);
+  assert.deepEqual(many, [3, 4, 5, 6, 7]);
+  assert.equal(new Set(listTurns(c.id).map((t) => t.turn)).size, 7);
+});
+
+test("a query with no conversation is turn 1, not part of someone else's count", () => {
+  const s = createSpace(input({ name: "Loose" }));
+  const first = recordQuery({
+    spaceId: s.id,
+    conversationId: null,
+    question: "loose one",
+    compiled: compiled("loose one"),
+    result: answer("a"),
+    error: null,
+    durationMs: 1,
+  });
+  const second = recordQuery({
+    spaceId: s.id,
+    conversationId: null,
+    question: "loose two",
+    compiled: compiled("loose two"),
+    result: answer("a"),
+    error: null,
+    durationMs: 1,
+  });
+  assert.equal(first.turn, 1);
+  assert.equal(second.turn, 1);
 });
 
 test("a failed turn still occupies its place in the conversation", () => {
@@ -235,7 +260,6 @@ test("a failed turn still occupies its place in the conversation", () => {
   recordQuery({
     spaceId: s.id,
     conversationId: c.id,
-    turn: nextTurn(c.id),
     question: "q2",
     compiled: compiled("q2"),
     result: null,
@@ -248,7 +272,7 @@ test("a failed turn still occupies its place in the conversation", () => {
   assert.equal(got[1].error, "Perplexity is rate limiting this key.");
   assert.equal(got[1].result, null);
   // The next question is turn 3 — a failed attempt is not silently reused.
-  assert.equal(nextTurn(c.id), 3);
+  assert.equal(addTurn(s.id, c.id, "q3", "a3").turn, 3);
 });
 
 test("lists conversations for one space, most recently used first", async () => {

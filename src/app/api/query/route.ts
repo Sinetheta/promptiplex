@@ -4,7 +4,6 @@ import {
   getConversation,
   getSpace,
   listTurns,
-  nextTurn,
   recordQuery,
   setConversationThread,
 } from "@/lib/db";
@@ -57,7 +56,6 @@ async function openConversation(spaceId: number | undefined, question: string) {
   return run({
     space,
     conversationId: conversation.id,
-    turn: 1,
     question,
     compiled,
     ask: (provider, query) => provider.search({ query, filters: compiled.filters }),
@@ -96,7 +94,6 @@ async function continueConversation(conversationId: number, question: string) {
   return run({
     space,
     conversationId,
-    turn: nextTurn(conversationId),
     question,
     compiled,
     ask: (provider, query) => {
@@ -123,12 +120,11 @@ async function continueConversation(conversationId: number, question: string) {
 async function run(args: {
   space: Space;
   conversationId: number;
-  turn: number;
   question: string;
   compiled: CompiledQuery;
   ask: (provider: SearchProvider, query: string) => Promise<SearchAnswer>;
 }) {
-  const { space, conversationId, turn, question, compiled } = args;
+  const { space, conversationId, question, compiled } = args;
   const started = Date.now();
 
   try {
@@ -155,10 +151,9 @@ async function run(args: {
       warnings: [...compiled.warnings, ...answer.warnings],
     };
 
-    const id = recordQuery({
+    const { id, turn } = recordQuery({
       spaceId: space.id,
       conversationId,
-      turn,
       question,
       compiled: withWarnings,
       result,
@@ -180,10 +175,9 @@ async function run(args: {
     });
   } catch (err) {
     const message = (err as Error).message;
-    recordQuery({
+    const { turn } = recordQuery({
       spaceId: space.id,
       conversationId,
-      turn,
       question,
       compiled,
       result: null,

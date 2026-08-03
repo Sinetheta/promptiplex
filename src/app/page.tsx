@@ -58,10 +58,18 @@ export default function Home() {
     void loadConversations();
   }, [loadConversations]);
 
+  // Which conversation the pane is currently loading. Clicking B while A is
+  // still in flight would otherwise let A's response land last and paint its
+  // turns under B's heading, with no later render to correct it.
+  const wanted = useRef<number | null>(null);
+
   const loadTurns = useCallback((id: number) => {
+    wanted.current = id;
     return fetch(`/api/conversations/${id}`)
       .then((r) => r.json())
-      .then((d: { turns?: QueryRecord[] }) => setTurns(d.turns ?? []))
+      .then((d: { turns?: QueryRecord[] }) => {
+        if (wanted.current === id) setTurns(d.turns ?? []);
+      })
       .catch(() => {});
   }, []);
 
@@ -89,6 +97,9 @@ export default function Home() {
   }, [question, activeId, isFollowUp]);
 
   function startNew() {
+    // Abandons any load still in flight, which would otherwise repopulate the
+    // pane of the conversation being left.
+    wanted.current = null;
     setConversationId(null);
     setTurns([]);
     setQuestion("");

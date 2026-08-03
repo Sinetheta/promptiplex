@@ -82,7 +82,16 @@ export function formatWhen(stamp: string): string {
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
   if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h ago`;
   if (seconds < 7 * 86_400) return `${Math.floor(seconds / 86_400)}d ago`;
-  return at.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
+  // The year is only omitted while it cannot be ambiguous. Without this, last
+  // March and this March both read "3 Mar" and the list order is the only thing
+  // telling them apart.
+  const sameYear = at.getFullYear() === new Date().getFullYear();
+  return at.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
 }
 
 /** Comma/newline separated list editor, rendered back as chips. */

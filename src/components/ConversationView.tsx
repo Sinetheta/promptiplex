@@ -61,13 +61,19 @@ function Turn({ turn }: { turn: QueryRecord }) {
         <span>{formatWhen(turn.createdAt)}</span>
         <button
           onClick={() => setShowSent((v) => !v)}
+          aria-expanded={showSent}
+          aria-controls={`sent-${turn.id}`}
           className="underline underline-offset-2 hover:text-foreground"
         >
           {showSent ? "hide what was sent" : carriesBrief ? "sent with the brief" : "what was sent"}
         </button>
       </div>
 
-      {showSent && <CompiledPreview compiled={turn.compiled} rawQuestion={turn.question} />}
+      {showSent && (
+        <div id={`sent-${turn.id}`}>
+          <CompiledPreview compiled={turn.compiled} rawQuestion={turn.question} />
+        </div>
+      )}
 
       {turn.error ? (
         <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-500">

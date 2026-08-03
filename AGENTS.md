@@ -178,15 +178,17 @@ between them is `CompiledQuery`.
 - **No credentials in this codebase.** The key lives in `.env`, which is
   gitignored. Never log it, never commit it, never put it in an error message.
 - **The server binds `127.0.0.1`.** `next dev` and `next start` default to
-  `0.0.0.0`, so the `-H 127.0.0.1` in the `dev` and `start` scripts is the only
+  `0.0.0.0`, so the `-H 127.0.0.1` that `scripts/serve.mjs` passes is the only
   thing keeping an unauthenticated, key-spending endpoint off the local
   network. Do not remove it, and do not add a deploy path that drops it.
   The **port** is configurable and the **hostname is not**, deliberately: which
   port it answers on is a convenience, which interface it answers on is the
-  safety property. `PORT` is read from the shell first and `.env` second, which
-  is why those two scripts start Next through `node --env-file-if-exists=.env`
-  — Next reads `PORT` before it loads any env file, so passing through node is
-  what makes the `.env` entry take effect at all.
+  safety property. Both `npm run dev` and `npm start` go through that one
+  script, so there is a single place to get this wrong. It also loads `.env`
+  before starting Next, which is what makes a `PORT` entry there take effect —
+  Next reads `PORT` while parsing arguments, before it loads any env file.
+  `--env-file-if-exists` cannot stand in for the wrapper: Next re-spawns its
+  worker through `NODE_OPTIONS`, which rejects that flag outright.
 - **This repo is public.** Everything committed is world-readable and stays in
   the history. Before writing a file, assume a stranger will read it: no keys,
   no absolute paths from one machine, no query history, no screenshots, no

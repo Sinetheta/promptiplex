@@ -232,10 +232,16 @@ export function createSonarProvider(opts: SonarOptions): SearchProvider {
         signal,
       });
     } catch (err) {
-      if ((err as Error).name === "TimeoutError") {
+      const { name, message } = err as Error;
+      if (name === "TimeoutError") {
         throw new Error(`Perplexity did not respond within ${timeoutMs / 1000}s.`);
       }
-      throw new Error(`Could not reach the Perplexity API: ${(err as Error).message}`);
+      // The caller stopped it. Nothing was unreachable, and saying so sends
+      // whoever reads it off checking a network that was fine.
+      if (name === "AbortError") {
+        throw new Error("The search was cancelled before Perplexity replied.");
+      }
+      throw new Error(`Could not reach the Perplexity API: ${message}`);
     }
 
     if (!res.ok) {

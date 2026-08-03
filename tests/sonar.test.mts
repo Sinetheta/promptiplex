@@ -222,3 +222,25 @@ test("sends a follow-up as one request and parses it like any other answer", asy
   assert.equal(out.sources[0].url, "https://minecraft.wiki/w/Chicken");
   assert.equal(out.usage?.costUsd, 0.0061);
 });
+
+test("says a cancelled search was cancelled, not that the API was unreachable", async () => {
+  const impl = (async () => {
+    const err = new Error("This operation was aborted");
+    err.name = "AbortError";
+    throw err;
+  }) as unknown as typeof fetch;
+  const provider = createSonarProvider({ apiKey: "k", fetchImpl: impl });
+
+  // The caller stopped it; nothing was unreachable, and saying so would send
+  // whoever reads it off checking a network that was fine.
+  await assert.rejects(provider.search(req()), /cancelled/);
+  await assert.rejects(provider.search(req()), (e: Error) => !/unreachable|reach the/.test(e.message));
+});
+
+test("still reports a genuinely unreachable API as unreachable", async () => {
+  const impl = (async () => {
+    throw new TypeError("fetch failed");
+  }) as unknown as typeof fetch;
+  const provider = createSonarProvider({ apiKey: "k", fetchImpl: impl });
+  await assert.rejects(provider.search(req()), /Could not reach the Perplexity API/);
+});

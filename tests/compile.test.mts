@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { compile, compileFollowUp } from "../src/lib/compile";
+import { positiveInt } from "../src/lib/types";
 import type { Space } from "../src/lib/types";
 
 function space(over: Partial<Space> = {}): Space {
@@ -130,4 +131,20 @@ test("a follow-up still carries the space's source preferences", () => {
 
 test("warns about an empty follow-up, as it does for an opening question", () => {
   assert.match(compileFollowUp(space(), "   ").warnings.join(" "), /empty/);
+});
+
+test("reads a positive integer parameter, and refuses anything else", () => {
+  assert.equal(positiveInt("12"), 12);
+  assert.equal(positiveInt("1"), 1);
+
+  // Each of these reached the database layer before: NaN as an id, and a
+  // negative LIMIT, which SQLite reads as no limit at all.
+  assert.equal(positiveInt("abc"), null);
+  assert.equal(positiveInt("-5"), null);
+  assert.equal(positiveInt("0"), null);
+  assert.equal(positiveInt("1.5"), null);
+  assert.equal(positiveInt("1e999"), null);
+  assert.equal(positiveInt(""), null);
+  assert.equal(positiveInt("   "), null);
+  assert.equal(positiveInt(null), null);
 });

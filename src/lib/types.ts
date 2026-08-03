@@ -36,6 +36,20 @@ export type Space = SpaceInput & {
   updatedAt: string;
 };
 
+/**
+ * Reads a positive integer out of a URL parameter, or returns null.
+ *
+ * `Number()` alone is not enough at a route boundary: `Number("abc")` is `NaN`
+ * and `Number("-5")` is negative, and SQLite reads a negative `LIMIT` as no
+ * limit at all — so a bad parameter would quietly bypass a row cap rather than
+ * being rejected.
+ */
+export function positiveInt(raw: string | null): number | null {
+  if (raw === null || raw.trim() === "") return null;
+  const n = Number(raw);
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+
 /** The exact query that will be sent, plus how it was built. */
 export type CompiledQuery = {
   text: string;
