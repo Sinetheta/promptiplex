@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildFollowUpBody,
   buildRequestBody,
   createSonarProvider,
   parseImages,
@@ -8,7 +9,7 @@ import {
   parseUsage,
 } from "../src/lib/search/sonar";
 import { foldFiltersIntoQuery } from "../src/lib/search/provider";
-import type { SearchRequest } from "../src/lib/search/provider";
+import type { FollowUpRequest, SearchRequest } from "../src/lib/search/provider";
 
 const NO_FILTERS = { domainsAllow: [], domainsDeny: [] };
 
@@ -159,4 +160,87 @@ test("restates filters as prose only for providers that cannot apply them", () =
   });
   assert.equal(folded, "Q\n\nPrefer sources from a.com. Do not use b.com.");
   assert.equal(foldFiltersIntoQuery("Q", NO_FILTERS), "Q");
+});
+
+function followUp(over: Partial<FollowUpRequest> = {}): FollowUpRequest {
+  return {
+    question: "what about ducks?",
+    turns: [{ question: "Context: minecraft\n\nchickens?", answerMarkdown: "Feed them seeds." }],
+    filters: NO_FILTERS,
+    ...over,
+  };
+}
+
+test("continues a conversation by sending the exchange so far as messages", () => {
+  const body = buildFollowUpBody(followUp(), "sonar", []) as {
+    messages: { role: string; content: string }[];
+  };
+
+  assert.deepEqual(body.messages, [
+    { role: "user", content: "Context: minecraft\n\nchickens?" },
+    { role: "assistant", content: "Feed them seeds." },
+    { role: "user", content: "what about ducks?" },
+  ]);
+});
+
+test("a follow-up carries the brief only in the turn it was compiled into", () => {
+  const body = buildFollowUpBody(followUp(), "sonar", []) as {
+    messages: { role: string; content: string }[];
+  };
+  const last = body.messages.at(-1)!;
+
+  // The point of the ordering is that the brief steers the *first* search. It
+  // is present in the exchange, so restating it here would only spend tokens.
+  assert.equal(last.content, "what about ducks?");
+  assert.ok(!last.content.includes("Context:"));
+  assert.ok(body.messages[0].content.includes("Context: minecraft"));
+});
+
+test("a follow-up still applies the space's source preferences", () => {
+  const warnings: string[] = [];
+  const body = buildFollowUpBody(
+    followUp({ filters: { domainsAllow: ["minecraft.wiki"], domainsDeny: ["example.com"] } }),
+    "sonar",
+    warnings,
+  );
+  assert.deepEqual(body.search_domain_filter, ["minecraft.wiki", "-example.com"]);
+  assert.deepEqual(warnings, []);
+});
+
+test("sends a follow-up as one request and parses it like any other answer", async () => {
+  const { impl, calls } = fakeFetch(ANSWER);
+  const provider = createSonarProvider({ apiKey: "k", fetchImpl: impl });
+
+  const out = await provider.followUp!(followUp());
+
+  assert.equal(calls.length, 1, "one request per action");
+  const sent = JSON.parse(String(calls[0].init.body)) as {
+    messages: { role: string }[];
+  };
+  assert.deepEqual(sent.messages.map((m) => m.role), ["user", "assistant", "user"]);
+  assert.equal(out.answerMarkdown, "Feed them seeds.[1]");
+  assert.equal(out.sources[0].url, "https://minecraft.wiki/w/Chicken");
+  assert.equal(out.usage?.costUsd, 0.0061);
+});
+
+test("says a cancelled search was cancelled, not that the API was unreachable", async () => {
+  const impl = (async () => {
+    const err = new Error("This operation was aborted");
+    err.name = "AbortError";
+    throw err;
+  }) as unknown as typeof fetch;
+  const provider = createSonarProvider({ apiKey: "k", fetchImpl: impl });
+
+  // The caller stopped it; nothing was unreachable, and saying so would send
+  // whoever reads it off checking a network that was fine.
+  await assert.rejects(provider.search(req()), /cancelled/);
+  await assert.rejects(provider.search(req()), (e: Error) => !/unreachable|reach the/.test(e.message));
+});
+
+test("still reports a genuinely unreachable API as unreachable", async () => {
+  const impl = (async () => {
+    throw new TypeError("fetch failed");
+  }) as unknown as typeof fetch;
+  const provider = createSonarProvider({ apiKey: "k", fetchImpl: impl });
+  await assert.rejects(provider.search(req()), /Could not reach the Perplexity API/);
 });

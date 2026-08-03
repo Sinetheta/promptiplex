@@ -34,13 +34,42 @@ seed.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE queries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    space_id INTEGER REFERENCES spaces(id) ON DELETE SET NULL,
+    question TEXT NOT NULL,
+    compiled TEXT NOT NULL,
+    result TEXT,
+    error TEXT,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 seed
   .prepare("INSERT INTO spaces (name, brief, query_template, domains_allow) VALUES (?,?,?,?)")
   .run("Kept", "my instructions", "T: {q}", '["example.com"]');
+
+const oldQuery = seed.prepare(
+  "INSERT INTO queries (space_id, question, compiled, result, error) VALUES (?,?,?,?,?)",
+);
+const COMPILED = JSON.stringify({
+  text: "q",
+  parts: [],
+  warnings: [],
+  filters: { domainsAllow: [], domainsDeny: [] },
+});
+oldQuery.run(
+  1,
+  "asked before conversations existed",
+  COMPILED,
+  JSON.stringify({ answer: "a", sources: [], images: [], provider: "sonar" }),
+  null,
+);
+oldQuery.run(1, "and this one failed", COMPILED, null, "Not signed in");
 seed.close();
 
-const { listSpaces } = await import("../src/lib/db");
+const { listSpaces, listConversations, listTurns } = await import("../src/lib/db");
 
 test.after(() => fs.rmSync(dir, { recursive: true, force: true }));
 
@@ -74,4 +103,29 @@ test("migrating adds the remote columns and removes the unread ones", () => {
   ]) {
     assert.ok(!columns.includes(dropped), `expected ${dropped} to be dropped`);
   }
+});
+
+test("gives every query from before conversations one of its own", () => {
+  const conversations = listConversations();
+  assert.equal(conversations.length, 2);
+
+  // Newest first, so the failed one — recorded second — leads.
+  assert.deepEqual(
+    conversations.map((c) => c.title),
+    ["and this one failed", "asked before conversations existed"],
+  );
+  assert.ok(conversations.every((c) => c.turnCount === 1));
+  assert.ok(conversations.every((c) => c.spaceName === "Kept"));
+
+  const turns = listTurns(conversations[1].id);
+  assert.equal(turns.length, 1);
+  assert.equal(turns[0].turn, 1);
+  assert.equal(turns[0].result?.answer, "a");
+  assert.equal(turns[0].question, "asked before conversations existed");
+});
+
+test("backfilling runs once, not again on every connect", () => {
+  // A second read must not mint a second set of conversations.
+  assert.equal(listConversations().length, 2);
+  assert.equal(listSpaces().length, 1);
 });

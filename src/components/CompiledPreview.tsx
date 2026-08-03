@@ -6,6 +6,7 @@ import type { CompiledQuery } from "@/lib/types";
 const LABEL_STYLE: Record<string, string> = {
   brief: "bg-accent-soft text-accent",
   question: "border border-border text-foreground",
+  "follow-up": "border border-border text-foreground",
 };
 
 /**

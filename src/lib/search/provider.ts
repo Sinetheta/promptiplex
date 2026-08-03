@@ -29,6 +29,38 @@ export type SearchRequest = {
   signal?: AbortSignal;
 };
 
+/** One completed exchange, as it is replayed to continue a conversation. */
+export type PriorTurn = {
+  question: string;
+  answerMarkdown: string;
+};
+
+/**
+ * A question asked as a continuation of earlier ones.
+ *
+ * `question` is the raw text, deliberately without the Space's brief in front
+ * of it: `turns` already carries the first question, which was compiled with
+ * the brief, so the context is present in the exchange. Restating it every turn
+ * would spend tokens re-establishing what the provider can already see.
+ */
+export type FollowUpRequest = {
+  question: string;
+
+  /** Earlier turns, oldest first. Never empty. */
+  turns: PriorTurn[];
+
+  /**
+   * Where the provider filed the earlier turns, when it said so in
+   * `SearchAnswer.threadUrl`. Providers that keep no state between requests
+   * ignore this and work from `turns`.
+   */
+  threadUrl?: string;
+
+  filters: CompiledQuery["filters"];
+
+  signal?: AbortSignal;
+};
+
 export type SearchAnswer = {
   answerMarkdown: string;
   sources: Source[];
@@ -58,6 +90,13 @@ export interface SearchProvider {
   readonly appliesFiltersNatively: boolean;
 
   search(req: SearchRequest, onProgress?: ProviderProgress): Promise<SearchAnswer>;
+
+  /**
+   * Asks a question as a continuation of earlier ones. Optional: a provider
+   * that has no way to carry an exchange forward simply omits it, and the UI
+   * offers a new search instead of a follow-up.
+   */
+  followUp?(req: FollowUpRequest, onProgress?: ProviderProgress): Promise<SearchAnswer>;
 }
 
 /**

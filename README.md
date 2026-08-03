@@ -56,6 +56,17 @@ npm run dev                                        # web UI on :3000
 
 Requires Node 22+. Tested on macOS.
 
+Port 3000 is a popular default, so it is often already taken. Set `PORT` in
+`.env` to move `npm run dev` and `npm start` somewhere quieter, or pass it for
+one run:
+
+```bash
+PORT=4173 npm run dev
+```
+
+The shell wins over `.env`, and `.env` wins over the default. The hostname is
+deliberately not configurable — see below.
+
 ## Running it safely
 
 This is a single-user tool that runs on your own machine, holding a key that
@@ -114,6 +125,27 @@ Source preferences are kept out of the query text on purpose. They travel as
 `search_domain_filter`, so the search is constrained rather than asked — and the
 tokens go to your actual question.
 
+## Conversations
+
+Questions asked in a space are kept together as a conversation, and a follow-up
+continues the one you are reading rather than starting again.
+
+The brief is compiled into the **first** question of a conversation and not into
+the ones after it. Sonar's endpoint is a chat completion, so a follow-up is sent
+as the exchange so far plus the new question — the first message already carries
+the brief, and restating it every turn would spend tokens re-establishing
+context that is right there in the request.
+
+Each turn can show the exact text that was sent, so what the brief did and did
+not add to it stays visible.
+
+Source preferences are not context, so they are applied to every turn.
+
+A conversation is one request per question, exactly like a standalone search.
+The turns sent with a follow-up are input tokens, so a long conversation costs
+more per question than a short one — the per-answer cost line shows this
+happening.
+
 ## Providers
 
 Searching sits behind one interface, `SearchProvider` in
@@ -131,6 +163,10 @@ const provider: SearchProvider = {
   label: "My provider",
   appliesFiltersNatively: false,
   async search({ query }) {
+    return { answerMarkdown: "…", sources: [], images: [], warnings: [] };
+  },
+  // Optional. Without it, the UI offers a new search instead of a follow-up.
+  async followUp({ question, turns }) {
     return { answerMarkdown: "…", sources: [], images: [], warnings: [] };
   },
 };

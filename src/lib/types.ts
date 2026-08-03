@@ -36,6 +36,20 @@ export type Space = SpaceInput & {
   updatedAt: string;
 };
 
+/**
+ * Reads a positive integer out of a URL parameter, or returns null.
+ *
+ * `Number()` alone is not enough at a route boundary: `Number("abc")` is `NaN`
+ * and `Number("-5")` is negative, and SQLite reads a negative `LIMIT` as no
+ * limit at all — so a bad parameter would quietly bypass a row cap rather than
+ * being rejected.
+ */
+export function positiveInt(raw: string | null): number | null {
+  if (raw === null || raw.trim() === "") return null;
+  const n = Number(raw);
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+
 /** The exact query that will be sent, plus how it was built. */
 export type CompiledQuery = {
   text: string;
@@ -95,10 +109,39 @@ export type QueryRecord = {
   spaceId: number | null;
   spaceName: string | null;
   spaceIcon: string | null;
+  conversationId: number | null;
+  /** 1-based position within the conversation. */
+  turn: number;
   question: string;
   compiled: CompiledQuery;
   result: QueryResult | null;
   error: string | null;
   durationMs: number;
   createdAt: string;
+};
+
+/**
+ * A run of questions asked against one Space, in order.
+ *
+ * The first question is compiled with the Space's brief in front of it. Later
+ * questions are not: the earlier turns are sent with them, so the context is
+ * already in the exchange and repeating it would only spend tokens restating
+ * what the provider can already see.
+ */
+export type Conversation = {
+  id: number;
+  spaceId: number | null;
+  spaceName: string | null;
+  spaceIcon: string | null;
+  title: string;
+  /**
+   * Where the provider keeps this exchange, when it keeps one of its own.
+   * Empty for providers that are stateless between requests, which is the
+   * usual case — those are continued by resending the turns.
+   */
+  threadUrl: string;
+  provider: string;
+  turnCount: number;
+  createdAt: string;
+  updatedAt: string;
 };

@@ -58,3 +58,32 @@ export function compile(space: Space, question: string): CompiledQuery {
 
   return { text, parts, warnings, filters };
 }
+
+/**
+ * The same assembly for a question asked inside an existing conversation.
+ *
+ * The brief is deliberately left out. It was compiled into the first question
+ * of the conversation, and that exchange is sent along with this one, so the
+ * context is already there — restating it every turn would spend tokens
+ * re-establishing what has already been established. The Space's template is
+ * skipped for the same reason: it framed the opening question, and a follow-up
+ * is read against that frame rather than starting a new one.
+ *
+ * Source preferences are not context, so they still travel as `filters` and are
+ * applied to every turn.
+ */
+export function compileFollowUp(space: Space, question: string): CompiledQuery {
+  const warnings: string[] = [];
+  const q = question.trim();
+  if (!q) warnings.push("The question is empty.");
+
+  return {
+    text: q,
+    parts: [{ label: "follow-up", text: q }],
+    warnings,
+    filters: {
+      domainsAllow: space.domainsAllow.map(cleanDomain).filter(Boolean),
+      domainsDeny: space.domainsDeny.map(cleanDomain).filter(Boolean),
+    },
+  };
+}

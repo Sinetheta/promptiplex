@@ -18,6 +18,13 @@ const {
   listQueries,
   countSpaces,
   findSpaceByRemoteUuid,
+  createConversation,
+  getConversation,
+  listConversations,
+  listTurns,
+  setConversationThread,
+  deleteConversation,
+  titleFor,
 } = await import("../src/lib/db");
 const { spaceInputSchema } = await import("../src/lib/types");
 const { seedIfEmpty } = await import("../src/lib/seed");
@@ -62,8 +69,9 @@ test("lists spaces case-insensitively by name", () => {
 
 test("records a successful query and reads it back", () => {
   const s = createSpace(input({ name: "Q" }));
-  const id = recordQuery({
+  const { id } = recordQuery({
     spaceId: s.id,
+    conversationId: null,
     question: "chickens?",
     compiled: { text: "Context: c\n\nchickens?", parts: [], warnings: [], filters: { domainsAllow: [], domainsDeny: [] } },
     result: { answer: "feed seeds", sources: [], images: [], provider: "sonar", usage: { model: "sonar", inputTokens: 12, outputTokens: 30, searchQueries: 2, costUsd: 0.0061 } },
@@ -84,6 +92,7 @@ test("records a failed query so history shows attempts, not just successes", () 
   const s = createSpace(input({ name: "F" }));
   recordQuery({
     spaceId: s.id,
+    conversationId: null,
     question: "x",
     compiled: { text: "x", parts: [], warnings: [], filters: { domainsAllow: [], domainsDeny: [] } },
     result: null,
@@ -99,6 +108,7 @@ test("keeps a deleted space's queries, detaching them", () => {
   const s = createSpace(input({ name: "Doomed" }));
   recordQuery({
     spaceId: s.id,
+    conversationId: null,
     question: "kept?",
     compiled: { text: "kept?", parts: [], warnings: [], filters: { domainsAllow: [], domainsDeny: [] } },
     result: null,
@@ -117,6 +127,7 @@ test("returns queries newest first", () => {
   for (const q of ["first", "second", "third"]) {
     recordQuery({
       spaceId: s.id,
+      conversationId: null,
       question: q,
       compiled: { text: q, parts: [], warnings: [], filters: { domainsAllow: [], domainsDeny: [] } },
       result: null,
@@ -147,6 +158,167 @@ test("finds an imported space by its Perplexity uuid, and ignores local ones", (
   // A blank uuid must not match the many locally-created spaces that have one.
   assert.equal(findSpaceByRemoteUuid(""), null);
   assert.equal(getSpace(local.id)!.remoteUuid, "");
+});
+
+const compiled = (text: string) => ({
+  text,
+  parts: [{ label: "question", text }],
+  warnings: [],
+  filters: { domainsAllow: [], domainsDeny: [] },
+});
+
+const answer = (text: string, over = {}) => ({
+  answer: text,
+  sources: [],
+  images: [],
+  provider: "sonar",
+  ...over,
+});
+
+/** Records one answered turn, the way the query route does. */
+function addTurn(spaceId: number, conversationId: number, question: string, reply: string) {
+  return recordQuery({
+    spaceId,
+    conversationId,
+    question,
+    compiled: compiled(question),
+    result: answer(reply),
+    error: null,
+    durationMs: 1,
+  });
+}
+
+test("names a conversation after the question that opened it", () => {
+  assert.equal(titleFor("  how do I   raise chickens? "), "how do I raise chickens?");
+  assert.equal(titleFor(""), "Untitled");
+  const long = titleFor("x".repeat(200));
+  assert.equal(long.length, 80);
+  assert.ok(long.endsWith("…"));
+});
+
+test("reads a conversation's turns back in the order they were asked", () => {
+  const s = createSpace(input({ name: "Threaded" }));
+  const c = createConversation({ spaceId: s.id, title: "first question" });
+
+  addTurn(s.id, c.id, "first question", "first answer");
+  addTurn(s.id, c.id, "second question", "second answer");
+  addTurn(s.id, c.id, "third question", "third answer");
+
+  const got = listTurns(c.id);
+  assert.deepEqual(got.map((t) => t.question), [
+    "first question",
+    "second question",
+    "third question",
+  ]);
+  assert.deepEqual(got.map((t) => t.turn), [1, 2, 3]);
+  assert.equal(getConversation(c.id)!.turnCount, 3);
+});
+
+test("allocates the turn number at insert time, not from a caller's count", () => {
+  const s = createSpace(input({ name: "Counting" }));
+  const c = createConversation({ spaceId: s.id, title: "q" });
+
+  assert.equal(addTurn(s.id, c.id, "q1", "a1").turn, 1);
+  assert.equal(addTurn(s.id, c.id, "q2", "a2").turn, 2);
+
+  // The position is derived inside the statement, so interleaved writes cannot
+  // both claim it — which is what a caller reading MAX(turn) before a slow
+  // provider request and writing afterwards would do.
+  const many = Array.from({ length: 5 }, (_, i) => addTurn(s.id, c.id, `q${i}`, "a").turn);
+  assert.deepEqual(many, [3, 4, 5, 6, 7]);
+  assert.equal(new Set(listTurns(c.id).map((t) => t.turn)).size, 7);
+});
+
+test("a query with no conversation is turn 1, not part of someone else's count", () => {
+  const s = createSpace(input({ name: "Loose" }));
+  const first = recordQuery({
+    spaceId: s.id,
+    conversationId: null,
+    question: "loose one",
+    compiled: compiled("loose one"),
+    result: answer("a"),
+    error: null,
+    durationMs: 1,
+  });
+  const second = recordQuery({
+    spaceId: s.id,
+    conversationId: null,
+    question: "loose two",
+    compiled: compiled("loose two"),
+    result: answer("a"),
+    error: null,
+    durationMs: 1,
+  });
+  assert.equal(first.turn, 1);
+  assert.equal(second.turn, 1);
+});
+
+test("a failed turn still occupies its place in the conversation", () => {
+  const s = createSpace(input({ name: "Partly failed" }));
+  const c = createConversation({ spaceId: s.id, title: "q1" });
+  addTurn(s.id, c.id, "q1", "a1");
+  recordQuery({
+    spaceId: s.id,
+    conversationId: c.id,
+    question: "q2",
+    compiled: compiled("q2"),
+    result: null,
+    error: "Perplexity is rate limiting this key.",
+    durationMs: 2,
+  });
+
+  const got = listTurns(c.id);
+  assert.equal(got.length, 2);
+  assert.equal(got[1].error, "Perplexity is rate limiting this key.");
+  assert.equal(got[1].result, null);
+  // The next question is turn 3 — a failed attempt is not silently reused.
+  assert.equal(addTurn(s.id, c.id, "q3", "a3").turn, 3);
+});
+
+test("lists conversations for one space, most recently used first", async () => {
+  const a = createSpace(input({ name: "Space A" }));
+  const b = createSpace(input({ name: "Space B" }));
+  const older = createConversation({ spaceId: a.id, title: "older" });
+  const newer = createConversation({ spaceId: a.id, title: "newer" });
+  createConversation({ spaceId: b.id, title: "elsewhere" });
+
+  const listed = listConversations({ spaceId: a.id });
+  assert.deepEqual(listed.map((c) => c.title), ["newer", "older"]);
+  assert.equal(listed[0].spaceName, "Space A");
+  assert.equal(listed.length, 2, "the other space's conversation is not listed here");
+
+  // Timestamps are millisecond-precision, and these rows are written far faster
+  // than that. A real turn is a network round trip, so this only buys back the
+  // gap that time would otherwise provide.
+  await new Promise((r) => setTimeout(r, 20));
+
+  // Answering in the older one brings it back to the top.
+  addTurn(a.id, older.id, "still going", "sure");
+  assert.equal(listConversations({ spaceId: a.id })[0].id, older.id);
+  assert.equal(getConversation(newer.id)!.turnCount, 0);
+});
+
+test("remembers where a provider filed the exchange, and keeps it once set", () => {
+  const s = createSpace(input({ name: "Threaded provider" }));
+  const c = createConversation({ spaceId: s.id, title: "q" });
+  assert.equal(c.threadUrl, "");
+
+  setConversationThread(c.id, { threadUrl: "https://example.test/t/1", provider: "sonar" });
+  assert.equal(getConversation(c.id)!.threadUrl, "https://example.test/t/1");
+
+  // A later turn from a provider that reports no thread must not erase it.
+  setConversationThread(c.id, { threadUrl: "", provider: "sonar" });
+  assert.equal(getConversation(c.id)!.threadUrl, "https://example.test/t/1");
+});
+
+test("deleting a conversation takes its turns with it", () => {
+  const s = createSpace(input({ name: "Doomed thread" }));
+  const c = createConversation({ spaceId: s.id, title: "q" });
+  addTurn(s.id, c.id, "q", "a");
+
+  deleteConversation(c.id);
+  assert.equal(getConversation(c.id), null);
+  assert.equal(listTurns(c.id).length, 0);
 });
 
 test("round-trips the remote identifiers", () => {

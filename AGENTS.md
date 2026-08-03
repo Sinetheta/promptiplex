@@ -66,6 +66,21 @@ cannot apply at once, so the context lives here, in the query Promptiplex
 builds. The organisational side — naming, grouping, history — is ours to build,
 simply because it has to live wherever the context lives.
 
+**Conversations are the same story one level up.** Questions asked in a space
+are kept together, and a follow-up continues the exchange. The brief is compiled
+into the first question only, because by the time a follow-up is asked the
+exchange already carries it and repeating it would spend tokens restating what
+is there.
+
+*How* it carries is the provider's business, and the two ways differ. Sonar
+keeps nothing between requests, so `followUp` resends the earlier turns as
+chat-completion messages. A provider that files the exchange somewhere of its
+own reports that as `SearchAnswer.threadUrl`, and gets it back as
+`FollowUpRequest.threadUrl` instead. Both receive `turns`; only one needs them.
+Do not write documentation that assumes either path is the only one.
+
+Source preferences are not context, so they are applied to every turn.
+
 **This may stop being necessary.** If Perplexity ever applies space instructions
 before retrieval, the reason for this project largely goes away. That would be a
 good outcome — do not build things that only make sense while the orderings
@@ -78,7 +93,7 @@ npm run ask -- --dry "…"     # compile only, sends nothing, costs nothing
 npm run ask -- "…"           # one real query from the terminal
 npm run verify               # one small query end to end; confirms the key works
 npm test                     # unit tests, no network, no key
-npm run dev                  # web UI on :3000
+npm run dev                  # web UI on :3000, or PORT from .env
 npm run check                # typecheck + lint + test
 ```
 
@@ -150,6 +165,7 @@ src/lib/search/sonar.ts     Perplexity API: request shaping, response parsing.
 src/lib/search/index.ts     Provider resolution, including PROMPTIPLEX_PROVIDER_MODULE.
 src/lib/compile.ts          Space + question -> query + filters. Pure substitution.
 src/lib/db.ts               SQLite schema and queries.
+src/app/api/query/route.ts  Opens a conversation, or adds a turn to one.
 scripts/ask.mts             One query from the terminal.
 scripts/verify.mts          Live health check. Costs one query.
 tests/                      Pure-function tests. Must never touch the network.
@@ -170,13 +186,25 @@ between them is `CompiledQuery`.
 - **No credentials in this codebase.** The key lives in `.env`, which is
   gitignored. Never log it, never commit it, never put it in an error message.
 - **The server binds `127.0.0.1`.** `next dev` and `next start` default to
-  `0.0.0.0`, so the `-H 127.0.0.1` in the `dev` and `start` scripts is the only
+  `0.0.0.0`, so the `-H 127.0.0.1` that `scripts/serve.mjs` passes is the only
   thing keeping an unauthenticated, key-spending endpoint off the local
   network. Do not remove it, and do not add a deploy path that drops it.
+  The **port** is configurable and the **hostname is not**, deliberately: which
+  port it answers on is a convenience, which interface it answers on is the
+  safety property. Both `npm run dev` and `npm start` go through that one
+  script, so there is a single place to get this wrong. It also loads `.env`
+  before starting Next, which is what makes a `PORT` entry there take effect —
+  Next reads `PORT` while parsing arguments, before it loads any env file.
+  `--env-file-if-exists` cannot stand in for the wrapper: Next re-spawns its
+  worker through `NODE_OPTIONS`, which rejects that flag outright.
 - **This repo is public.** Everything committed is world-readable and stays in
   the history. Before writing a file, assume a stranger will read it: no keys,
   no absolute paths from one machine, no query history, no screenshots, no
   agent transcripts. Those go in `specs/`, which is gitignored.
+- **The brief goes in the first turn of a conversation, not every turn.** A
+  follow-up is sent with the earlier turns, so the context is already present.
+  Recompiling it each time is a bill for repeating yourself. `compileFollowUp`
+  in `compile.ts` is deliberately the smaller of the two.
 - **Source preferences are a filter, not prose.** They are carried in
   `CompiledQuery.filters` and applied by the provider. Do not concatenate them
   into the query text for a provider that can apply them properly — that spends
