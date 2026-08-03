@@ -203,6 +203,13 @@ function versions(idArg: string | undefined): void {
   );
 }
 
+function describeMissing(ids: number[]): string {
+  const which = ids.join(", ");
+  return ids.length === 1
+    ? `Space ${which} was deleted while the plan was being applied, so its edit was skipped.`
+    : `Spaces ${which} were deleted while the plan was being applied, so their edits were skipped.`;
+}
+
 /** Timestamps are stored as "YYYY-MM-DD HH:MM:SS.sss"; the day is enough here. */
 function day(stamp: string): string {
   return stamp.slice(0, 10);
@@ -231,6 +238,7 @@ function apply(file: string | undefined): void {
   });
 
   const rollback: SpaceChange[] = [];
+  const missing: number[] = [];
 
   for (const { space, change, after } of staged) {
     const moved = describeEdit(toInput(space), after);
@@ -255,9 +263,21 @@ function apply(file: string | undefined): void {
       }
     }
 
+    // The rollback entry is recorded only once the write has happened. A space
+    // can be deleted in the web UI between staging and here, in which case
+    // `updateSpace` matches no row and returns null — and an undo for a change
+    // that never applied would be a lie in the file the user trusts most.
     const undo = rollbackFor(space, after);
-    if (undo) rollback.push(undo);
-    if (!dry) updateSpace(space.id, after);
+    if (dry) {
+      if (undo) rollback.push(undo);
+      continue;
+    }
+    if (updateSpace(space.id, after)) {
+      if (undo) rollback.push(undo);
+    } else {
+      console.log("  not applied — this space was deleted while the plan was being applied");
+      missing.push(space.id);
+    }
   }
 
   if (dry) {
@@ -266,12 +286,25 @@ function apply(file: string | undefined): void {
   }
 
   if (!rollback.length) {
+    if (missing.length) die(`\nNothing was applied; ${describeMissing(missing)}\n`);
     console.log("\nNothing to write; every space already read this way.\n");
     return;
   }
 
+  const undoJson = `${JSON.stringify({ changes: rollback }, null, 2)}\n`;
   const undoPath = `${file.replace(/\.json$/, "")}.rollback.json`;
-  fs.writeFileSync(undoPath, `${JSON.stringify({ changes: rollback }, null, 2)}\n`);
+  try {
+    fs.writeFileSync(undoPath, undoJson);
+  } catch (err) {
+    // The spaces have already been rewritten by this point, so a raw stack
+    // trace here would leave the user with new wording and no way back. Print
+    // the rollback instead of dropping it.
+    die(
+      `\nApplied ${rollback.length} change${rollback.length === 1 ? "" : "s"}, but could not ` +
+        `write the rollback file: ${(err as Error).message}\n` +
+        `Save this as a plan and apply it to put the previous wording back:\n\n${undoJson}`,
+    );
+  }
 
   // A plan often lives outside the project, where a relative path is a stack of
   // "../" that nobody can read back.
@@ -281,4 +314,5 @@ function apply(file: string | undefined): void {
       `Previous wording saved to ${shown.startsWith("..") ? path.resolve(undoPath) : shown} — ` +
       `apply that file to put it back.\n`,
   );
+  if (missing.length) die(describeMissing(missing));
 }

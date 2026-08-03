@@ -131,7 +131,12 @@ Edit spaces in the web UI, or read and rewrite them from the terminal:
 npm run spaces                       # what you have, at a glance
 npm run spaces -- --json             # every field of every space
 npm run spaces -- apply plan.json    # apply a reviewed set of edits
+npm run spaces -- versions           # every wording a space has been queried under
 ```
+
+A space is edited over time, so each query records the exact wording it was
+compiled from. `versions` reads that back with a count per wording — what a
+space has said, and how many questions were asked while it said it.
 
 ### Reviewing your spaces
 

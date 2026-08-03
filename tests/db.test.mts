@@ -427,3 +427,9 @@ test("a deleted space keeps its wording history, detached", () => {
   assert.equal(kept.name, "Departed", "the snapshot keeps the name it had");
   assert.equal(kept.brief, "what it said");
 });
+
+test("updating a space that is gone reports it rather than pretending", () => {
+  // What `spaces.mts apply` leans on to avoid writing a rollback entry for an
+  // edit that never landed.
+  assert.equal(updateSpace(999_999, input({ name: "Nobody" })), null);
+});

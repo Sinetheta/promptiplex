@@ -32,6 +32,13 @@ function connect(): Database.Database {
   if (db) return db;
   db = new Database(DB_PATH);
   db.pragma("journal_mode = WAL");
+
+  // better-sqlite3 enables this already, unlike the sqlite3 shell. Stated
+  // anyway, because the schema now leans on it: deleting a space detaches its
+  // queries and versions through ON DELETE SET NULL rather than losing them,
+  // and that would silently stop happening under a driver with SQLite's own
+  // default. See `deleteSpace`.
+  db.pragma("foreign_keys = ON");
   db.exec(`
     CREATE TABLE IF NOT EXISTS spaces (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -525,7 +532,9 @@ export function setConversationThread(
 export function deleteConversation(id: number): void {
   const conn = connect();
   conn.transaction(() => {
-    // Foreign keys are off by default in SQLite, so the cascade is explicit.
+    // Explicit rather than left to ON DELETE CASCADE: the column was added to
+    // existing databases by ALTER TABLE, which SQLite only accepts without an
+    // ON DELETE clause, so a migrated database has no cascade to rely on.
     conn.prepare("DELETE FROM queries WHERE conversation_id = ?").run(id);
     conn.prepare("DELETE FROM conversations WHERE id = ?").run(id);
   })();

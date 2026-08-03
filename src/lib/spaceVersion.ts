@@ -28,22 +28,24 @@ import type { SpaceInput } from "./types";
  * list, and `sonar.ts` truncates from the end, so two orderings of the same
  * domains can genuinely search differently.
  */
-export function spaceFingerprint(space: Pick<SpaceInput, VersionedField>): string {
-  const canonical = JSON.stringify([
-    space.brief,
-    space.queryTemplate,
-    space.domainsAllow,
-    space.domainsDeny,
-  ]);
-  return createHash("sha256").update(canonical).digest("hex");
-}
-
 export type VersionedField = "brief" | "queryTemplate" | "domainsAllow" | "domainsDeny";
 
-/** The fields a fingerprint covers, in the order they are hashed. */
+/**
+ * The fields a fingerprint covers, in the order they are hashed.
+ *
+ * Hashed by reading this list rather than by naming the fields again below: a
+ * field added here but forgotten there would leave the fingerprint blind to
+ * something the provider does see, and every query sent under the new wording
+ * would be filed under the old one.
+ */
 export const VERSIONED_FIELDS: VersionedField[] = [
   "brief",
   "queryTemplate",
   "domainsAllow",
   "domainsDeny",
 ];
+
+export function spaceFingerprint(space: Pick<SpaceInput, VersionedField>): string {
+  const canonical = JSON.stringify(VERSIONED_FIELDS.map((field) => space[field]));
+  return createHash("sha256").update(canonical).digest("hex");
+}
