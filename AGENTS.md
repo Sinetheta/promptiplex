@@ -91,6 +91,7 @@ differ.
 ```bash
 npm run ask -- --dry "…"     # compile only, sends nothing, costs nothing
 npm run ask -- "…"           # one real query from the terminal
+npm run spaces               # the spaces, at a glance; --json for every field
 npm run verify               # one small query end to end; confirms the key works
 npm test                     # unit tests, no network, no key
 npm run dev                  # web UI on :3000, or PORT from .env
@@ -165,15 +166,31 @@ src/lib/search/sonar.ts     Perplexity API: request shaping, response parsing.
 src/lib/search/index.ts     Provider resolution, including PROMPTIPLEX_PROVIDER_MODULE.
 src/lib/compile.ts          Space + question -> query + filters. Pure substitution.
 src/lib/db.ts               SQLite schema and queries.
+src/lib/spacePlan.ts        The edit format a space review hands back. Pure.
 src/app/api/query/route.ts  Opens a conversation, or adds a turn to one.
 scripts/ask.mts             One query from the terminal.
+scripts/spaces.mts          Reads the spaces; applies a reviewed plan of edits.
 scripts/verify.mts          Live health check. Costs one query.
 tests/                      Pure-function tests. Must never touch the network.
+.claude/skills/             Skills shipped with the project. See below.
 ```
 
 `compile.ts` knows nothing about any provider's vocabulary, and
 `search/sonar.ts` knows nothing about spaces. Keep it that way — the interface
 between them is `CompiledQuery`.
+
+### Skills shipped with the project
+
+`.claude/skills/space-review/` reviews the spaces themselves: how many there
+are, whether they overlap, and whether each brief is written to steer a search
+or only to shape an answer. It reads the database, writes a report and a plan
+file into `specs/`, and applies the plan through `npm run spaces -- apply` once
+the user has said yes. It sends no queries.
+
+A skill committed here is documentation that happens to be executable, so it
+holds to the same rules as the rest of the repo: no personal notes, no history,
+nothing that reads as criticism of Perplexity. Anything true only of one
+person's setup belongs in `specs/`.
 
 ## Non-negotiables
 
@@ -243,3 +260,9 @@ between them is `CompiledQuery`.
 2. **A local model for that combine step**, so it costs nothing.
 3. Per-space model and search-mode selection, which would make
    `search_mode: "academic"` genuinely useful for the Papers space.
+4. **Reviewing spaces against their results, not only their words.**
+   `space-review` reads the wording and argues about it; whether one phrasing
+   retrieves better than another is a measurement, and nothing here measures it
+   yet. It would need each query stored alongside the exact space wording that
+   produced it, and enough queries per space to compare — a bigger change to
+   what history records than to the review itself.
