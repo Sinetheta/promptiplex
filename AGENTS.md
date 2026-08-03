@@ -68,10 +68,18 @@ simply because it has to live wherever the context lives.
 
 **Conversations are the same story one level up.** Questions asked in a space
 are kept together, and a follow-up continues the exchange. The brief is compiled
-into the first question only: the earlier turns are sent with a follow-up, so
-the context is already in the request, and repeating it would spend tokens
-restating what is there. Source preferences are not context and are applied to
-every turn.
+into the first question only, because by the time a follow-up is asked the
+exchange already carries it and repeating it would spend tokens restating what
+is there.
+
+*How* it carries is the provider's business, and the two ways differ. Sonar
+keeps nothing between requests, so `followUp` resends the earlier turns as
+chat-completion messages. A provider that files the exchange somewhere of its
+own reports that as `SearchAnswer.threadUrl`, and gets it back as
+`FollowUpRequest.threadUrl` instead. Both receive `turns`; only one needs them.
+Do not write documentation that assumes either path is the only one.
+
+Source preferences are not context, so they are applied to every turn.
 
 **This may stop being necessary.** If Perplexity ever applies space instructions
 before retrieval, the reason for this project largely goes away. That would be a
