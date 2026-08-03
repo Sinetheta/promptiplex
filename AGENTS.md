@@ -85,7 +85,7 @@ npm run ask -- --dry "…"     # compile only, sends nothing, costs nothing
 npm run ask -- "…"           # one real query from the terminal
 npm run verify               # one small query end to end; confirms the key works
 npm test                     # unit tests, no network, no key
-npm run dev                  # web UI on :3000
+npm run dev                  # web UI on :3000, or PORT from .env
 npm run check                # typecheck + lint + test
 ```
 
@@ -181,6 +181,12 @@ between them is `CompiledQuery`.
   `0.0.0.0`, so the `-H 127.0.0.1` in the `dev` and `start` scripts is the only
   thing keeping an unauthenticated, key-spending endpoint off the local
   network. Do not remove it, and do not add a deploy path that drops it.
+  The **port** is configurable and the **hostname is not**, deliberately: which
+  port it answers on is a convenience, which interface it answers on is the
+  safety property. `PORT` is read from the shell first and `.env` second, which
+  is why those two scripts start Next through `node --env-file-if-exists=.env`
+  — Next reads `PORT` before it loads any env file, so passing through node is
+  what makes the `.env` entry take effect at all.
 - **This repo is public.** Everything committed is world-readable and stays in
   the history. Before writing a file, assume a stranger will read it: no keys,
   no absolute paths from one machine, no query history, no screenshots, no

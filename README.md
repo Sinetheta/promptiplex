@@ -56,6 +56,17 @@ npm run dev                                        # web UI on :3000
 
 Requires Node 22+. Tested on macOS.
 
+Port 3000 is a popular default, so it is often already taken. Set `PORT` in
+`.env` to move `npm run dev` and `npm start` somewhere quieter, or pass it for
+one run:
+
+```bash
+PORT=4173 npm run dev
+```
+
+The shell wins over `.env`, and `.env` wins over the default. The hostname is
+deliberately not configurable — see below.
+
 ## Running it safely
 
 This is a single-user tool that runs on your own machine, holding a key that
