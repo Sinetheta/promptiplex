@@ -92,6 +92,7 @@ differ.
 npm run ask -- --dry "…"     # compile only, sends nothing, costs nothing
 npm run ask -- "…"           # one real query from the terminal
 npm run spaces               # the spaces, at a glance; --json for every field
+npm run spaces -- versions   # every wording a space has been queried under
 npm run verify               # one small query end to end; confirms the key works
 npm test                     # unit tests, no network, no key
 npm run dev                  # web UI on :3000, or PORT from .env
@@ -166,10 +167,11 @@ src/lib/search/sonar.ts     Perplexity API: request shaping, response parsing.
 src/lib/search/index.ts     Provider resolution, including PROMPTIPLEX_PROVIDER_MODULE.
 src/lib/compile.ts          Space + question -> query + filters. Pure substitution.
 src/lib/db.ts               SQLite schema and queries.
+src/lib/spaceVersion.ts     What makes one wording of a space distinct. Pure.
 src/lib/spacePlan.ts        The edit format a space review hands back. Pure.
 src/app/api/query/route.ts  Opens a conversation, or adds a turn to one.
 scripts/ask.mts             One query from the terminal.
-scripts/spaces.mts          Reads the spaces; applies a reviewed plan of edits.
+scripts/spaces.mts          Reads the spaces and their versions; applies a plan of edits.
 scripts/verify.mts          Live health check. Costs one query.
 tests/                      Pure-function tests. Must never touch the network.
 .claude/skills/             Skills shipped with the project. See below.
@@ -178,6 +180,34 @@ tests/                      Pure-function tests. Must never touch the network.
 `compile.ts` knows nothing about any provider's vocabulary, and
 `search/sonar.ts` knows nothing about spaces. Keep it that way — the interface
 between them is `CompiledQuery`.
+
+### Space versions
+
+A space is edited over its life, so `queries.space_id` records which space a
+question was asked in, not what that space said at the time. The wording is the
+interesting part, so it is kept separately: `space_versions` holds one row per
+distinct wording, and every query points at the one it was compiled from.
+
+- **Distinct means what reaches the provider** — `brief`, `queryTemplate`,
+  `domainsAllow`, `domainsDeny`, hashed by `spaceFingerprint`. `name` and
+  `icon` are excluded because they are never sent, so a rename would otherwise
+  split a group of queries that searched identically.
+- **Find-or-create, not append.** Editing a wording away and back reuses the
+  original row, so "the queries asked under this phrasing" stays one group.
+- **Minted when a query uses it**, from the same `Space` object that was
+  compiled — so the row describes what was sent, not what the space says by the
+  time the answer arrives. Wording that was written but never queried leaves no
+  trace, which is correct: nothing was asked under it.
+- **It outlives the space.** Deleting a space detaches its versions and queries
+  rather than removing them; the snapshot columns keep the wording readable
+  afterwards.
+- **Queries recorded before this existed have no version**, and are left that
+  way. Attributing them to whatever the space says today would answer the one
+  question the column exists to answer, incorrectly.
+
+`npm run spaces -- versions` reads it back with a count per wording. A count is
+all it is: which phrasing *retrieved* better is a judgement about answers, and
+nothing here reads the answers yet.
 
 ### Skills shipped with the project
 
@@ -263,6 +293,9 @@ person's setup belongs in `specs/`.
 4. **Reviewing spaces against their results, not only their words.**
    `space-review` reads the wording and argues about it; whether one phrasing
    retrieves better than another is a measurement, and nothing here measures it
-   yet. It would need each query stored alongside the exact space wording that
-   produced it, and enough queries per space to compare — a bigger change to
-   what history records than to the review itself.
+   yet. Half of what that needs now exists: every query records the exact
+   wording it was compiled from (see *Space versions* below), so the queries
+   asked under one phrasing are a group that can be counted. What is still
+   missing is the other half — enough queries per space to compare, and some
+   read of how the answers went. The record starts before the review can, which
+   is why it was built first.

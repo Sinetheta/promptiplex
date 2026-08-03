@@ -45,10 +45,19 @@ npm run spaces -- --json  # every field of every space
 Read all of it before judging any of it. Half of what is wrong with a set of
 spaces is only visible across them.
 
-This review reads the spaces and nothing else. Query history is deliberately not
-consulted: correlating wording with answer quality needs many more queries than
-a personal database holds, and guessing from a handful would be worse than
-reading the words carefully. That is a later, larger thing.
+```bash
+npm run spaces -- versions  # every wording each space has been queried under
+```
+
+That last one is context, not evidence. It says what a space has said before and
+how many questions were asked while it said it — useful for noticing that a
+previous review's rewrite has never actually been used, or that a space has been
+edited repeatedly without settling. It says nothing about whether any wording
+retrieved better.
+
+Correlating wording with answer quality needs many more queries than a personal
+database holds, and needs someone to read the answers. Neither is done here, so
+do not argue from the counts. Judge the words.
 
 ## Pass one — the collection
 

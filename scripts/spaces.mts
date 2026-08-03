@@ -5,6 +5,7 @@
  *   npm run spaces -- --json                # every field, for a reviewer to read
  *   npm run spaces -- apply plan.json       # apply a reviewed set of edits
  *   npm run spaces -- apply --dry plan.json # print what it would change
+ *   npm run spaces -- versions [id]         # every wording used, and how much it was used
  *
  * Nothing here sends a query, needs a key, or touches the network. Editing a
  * space in the web UI does the same thing; this exists so a review can read
@@ -14,8 +15,15 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { getSpace, listSpaces, updateSpace } from "../src/lib/db";
+import {
+  countQueriesWithoutVersion,
+  getSpace,
+  listSpaceVersions,
+  listSpaces,
+  updateSpace,
+} from "../src/lib/db";
 import { seedIfEmpty } from "../src/lib/seed";
+import { spaceFingerprint } from "../src/lib/spaceVersion";
 import {
   applyEdit,
   describeEdit,
@@ -41,8 +49,13 @@ seedIfEmpty();
 
 if (args[0] === "apply") {
   apply(args[1]);
+} else if (args[0] === "versions") {
+  versions(args[1]);
 } else if (args.length && args[0] !== "list") {
-  die(`Unknown command "${args[0]}". Usage: npm run spaces -- [list|apply <plan.json>]`);
+  die(
+    `Unknown command "${args[0]}". ` +
+      `Usage: npm run spaces -- [list|apply <plan.json>|versions [id]]`,
+  );
 } else if (flags.has("--json")) {
   console.log(JSON.stringify({ spaces: listSpaces() }, null, 2));
 } else {
@@ -118,6 +131,81 @@ function list(): void {
       `"brief" is its length in characters — every one of them is sent with the ` +
       `first question of a conversation.\n`,
   );
+}
+
+/**
+ * Every wording each space has been queried under, newest first.
+ *
+ * This reads the record that `recordSpaceVersion` writes: what a space said,
+ * and how many questions were asked while it said it. It is deliberately a
+ * count and not a verdict — whether one wording retrieved better than another
+ * is a judgement about answers, and nothing here reads the answers.
+ */
+function versions(idArg: string | undefined): void {
+  const only = idArg ? Number(idArg) : undefined;
+  if (idArg && !Number.isSafeInteger(only!)) die(`"${idArg}" is not a space id.`);
+
+  const all = listSpaceVersions(only);
+  if (flags.has("--json")) return void console.log(JSON.stringify({ versions: all }, null, 2));
+
+  if (!all.length) {
+    console.log(
+      only
+        ? `\nNo queries recorded for space ${only} yet, so it has no wording history.\n`
+        : "\nNo wording history yet. It starts with the next query.\n",
+    );
+    return;
+  }
+
+  // The wording a space reads as right now, so the version in use is marked
+  // rather than guessed at from the dates.
+  const currentFingerprint = new Map<number, string>();
+  for (const s of listSpaces()) currentFingerprint.set(s.id, spaceFingerprint(s));
+
+  // A deleted space leaves its versions with no space_id, so they group by the
+  // name they carried instead — enough to keep two deleted spaces apart.
+  const bySpace = new Map<string, typeof all>();
+  for (const v of all) {
+    const key = v.spaceId === null ? `deleted:${v.name}` : String(v.spaceId);
+    if (!bySpace.has(key)) bySpace.set(key, []);
+    bySpace.get(key)!.push(v);
+  }
+
+  for (const list of bySpace.values()) {
+    const head = list[list.length - 1];
+    const spaceId = head.spaceId;
+    const title = head.spaceName ?? `${head.name} (deleted)`;
+    console.log(`\n${title}  (space ${spaceId ?? "—"})`);
+
+    for (const v of [...list].reverse()) {
+      const current = spaceId !== null && currentFingerprint.get(spaceId) === v.fingerprint;
+      const used = v.queryCount === 1 ? "1 query" : `${v.queryCount} queries`;
+      const when = v.firstUsedAt
+        ? `${day(v.firstUsedAt)}${v.lastUsedAt && day(v.lastUsedAt) !== day(v.firstUsedAt) ? ` → ${day(v.lastUsedAt)}` : ""}`
+        : day(v.createdAt);
+      console.log(
+        `  #${v.id}${current ? " (current)" : "         "}  ${used.padEnd(11)}  ${when.padEnd(23)}  ` +
+          `brief ${v.brief.length}  template ${JSON.stringify(v.queryTemplate)}`,
+      );
+      const sources = [...v.domainsAllow, ...v.domainsDeny.map((d) => `-${d}`)].join(", ");
+      if (sources) console.log(`${" ".repeat(6)}sources ${sources}`);
+    }
+  }
+
+  const orphans = countQueriesWithoutVersion();
+  console.log(
+    `\n${all.length} wording${all.length === 1 ? "" : "s"} recorded.` +
+      (orphans
+        ? ` ${orphans} earlier quer${orphans === 1 ? "y was" : "ies were"} recorded before ` +
+          `wordings were kept, and cannot be attributed to one.`
+        : "") +
+      "\n",
+  );
+}
+
+/** Timestamps are stored as "YYYY-MM-DD HH:MM:SS.sss"; the day is enough here. */
+function day(stamp: string): string {
+  return stamp.slice(0, 10);
 }
 
 function apply(file: string | undefined): void {

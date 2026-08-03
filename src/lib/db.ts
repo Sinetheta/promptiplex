@@ -7,7 +7,9 @@ import type {
   QueryResult,
   Space,
   SpaceInput,
+  SpaceVersion,
 } from "./types";
+import { spaceFingerprint } from "./spaceVersion";
 
 const DB_PATH =
   process.env.PROMPTIPLEX_DB_PATH ??
@@ -55,9 +57,30 @@ function connect(): Database.Database {
       updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now'))
     );
 
+    /*
+     * One row per distinct wording a space has had, minted the first time a
+     * query uses it. See spaceVersion.ts for what counts as distinct.
+     *
+     * The snapshot columns are the point: a space is edited freely, and this is
+     * what it said at the time, kept so a later review can compare wordings
+     * against the results they produced rather than against memory.
+     */
+    CREATE TABLE IF NOT EXISTS space_versions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      space_id INTEGER REFERENCES spaces(id) ON DELETE SET NULL,
+      fingerprint TEXT NOT NULL,
+      name TEXT NOT NULL DEFAULT '',
+      brief TEXT NOT NULL DEFAULT '',
+      query_template TEXT NOT NULL DEFAULT '{q}',
+      domains_allow TEXT NOT NULL DEFAULT '[]',
+      domains_deny TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now'))
+    );
+
     CREATE TABLE IF NOT EXISTS queries (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       space_id INTEGER REFERENCES spaces(id) ON DELETE SET NULL,
+      space_version_id INTEGER REFERENCES space_versions(id) ON DELETE SET NULL,
       conversation_id INTEGER REFERENCES conversations(id) ON DELETE CASCADE,
       turn INTEGER NOT NULL DEFAULT 1,
       question TEXT NOT NULL,
@@ -80,6 +103,12 @@ function connect(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_queries_conversation ON queries(conversation_id, turn);
     CREATE INDEX IF NOT EXISTS idx_conversations_space ON conversations(space_id);
     CREATE INDEX IF NOT EXISTS idx_conversations_updated ON conversations(updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_queries_space_version ON queries(space_version_id);
+
+    -- Find-or-create is what keeps a reverted edit from minting a third row, so
+    -- the lookup key is enforced rather than assumed.
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_space_versions_fingerprint
+      ON space_versions(space_id, fingerprint);
   `);
   return db;
 }
@@ -105,6 +134,15 @@ function migrate(conn: Database.Database): void {
       "ALTER TABLE queries ADD COLUMN conversation_id INTEGER REFERENCES conversations(id)",
     ],
     ["turn", "ALTER TABLE queries ADD COLUMN turn INTEGER NOT NULL DEFAULT 1"],
+    // Left NULL on every query recorded before versions existed. The wording
+    // those queries used is genuinely unknown, and pointing them at whatever
+    // the space says today would answer the one question this column exists to
+    // answer, incorrectly.
+    [
+      "space_version_id",
+      "ALTER TABLE queries ADD COLUMN space_version_id INTEGER " +
+        "REFERENCES space_versions(id) ON DELETE SET NULL",
+    ],
   ] as const) {
     if (!queryColumns.has(name)) conn.exec(ddl);
   }
@@ -288,7 +326,119 @@ export function findSpaceByRemoteUuid(uuid: string): Space | null {
 }
 
 export function deleteSpace(id: number): void {
+  // Queries and versions are detached rather than removed — their space_id is
+  // set to NULL by the foreign key, and the snapshot columns on a version keep
+  // the wording readable. A deleted space should not take the record of what it
+  // once said, or what was asked of it, with it.
   connect().prepare("DELETE FROM spaces WHERE id = ?").run(id);
+}
+
+/**
+ * The id of the version row for this exact wording, minting it if new.
+ *
+ * Called once per query, with the same Space object that was compiled, so the
+ * row records what was sent rather than what the space says by the time the
+ * answer comes back.
+ *
+ * Find-or-create rather than append: a wording that has been used before gets
+ * its existing row, so the queries asked under it stay one group even if the
+ * space was edited away and back in between.
+ */
+export function recordSpaceVersion(space: Space): number {
+  const conn = connect();
+  const fingerprint = spaceFingerprint(space);
+
+  return conn.transaction(() => {
+    const existing = conn
+      .prepare("SELECT id FROM space_versions WHERE space_id = ? AND fingerprint = ?")
+      .get(space.id, fingerprint) as { id: number } | undefined;
+    if (existing) return existing.id;
+
+    const info = conn
+      .prepare(
+        `INSERT INTO space_versions
+           (space_id, fingerprint, name, brief, query_template, domains_allow, domains_deny)
+         VALUES (?,?,?,?,?,?,?)`,
+      )
+      .run(
+        space.id,
+        fingerprint,
+        space.name,
+        space.brief,
+        space.queryTemplate,
+        JSON.stringify(space.domainsAllow),
+        JSON.stringify(space.domainsDeny),
+      );
+    return Number(info.lastInsertRowid);
+  })();
+}
+
+type SpaceVersionRow = {
+  id: number;
+  space_id: number | null;
+  space_name: string | null;
+  fingerprint: string;
+  name: string;
+  brief: string;
+  query_template: string;
+  domains_allow: string;
+  domains_deny: string;
+  query_count: number;
+  first_used_at: string | null;
+  last_used_at: string | null;
+  created_at: string;
+};
+
+function rowToSpaceVersion(r: SpaceVersionRow): SpaceVersion {
+  return {
+    id: r.id,
+    spaceId: r.space_id,
+    spaceName: r.space_name,
+    fingerprint: r.fingerprint,
+    name: r.name,
+    brief: r.brief,
+    queryTemplate: r.query_template,
+    domainsAllow: JSON.parse(r.domains_allow),
+    domainsDeny: JSON.parse(r.domains_deny),
+    queryCount: r.query_count,
+    firstUsedAt: r.first_used_at,
+    lastUsedAt: r.last_used_at,
+    createdAt: r.created_at,
+  };
+}
+
+/**
+ * Every wording a space has been queried under, oldest first, with how many
+ * questions each one carried.
+ *
+ * This is the raw material for reviewing spaces against their results rather
+ * than only against their words. It answers "what did it say, and how much do
+ * we know about how that went" — and nothing more. Judging the answers is a
+ * separate job, and one nothing here does yet.
+ */
+export function listSpaceVersions(spaceId?: number): SpaceVersion[] {
+  const where = spaceId ? "WHERE v.space_id = ?" : "";
+  const params = spaceId ? [spaceId] : [];
+  const rows = connect()
+    .prepare(
+      `SELECT v.*, s.name AS space_name,
+              (SELECT COUNT(*) FROM queries q WHERE q.space_version_id = v.id) AS query_count,
+              (SELECT MIN(created_at) FROM queries q WHERE q.space_version_id = v.id) AS first_used_at,
+              (SELECT MAX(created_at) FROM queries q WHERE q.space_version_id = v.id) AS last_used_at
+       FROM space_versions v LEFT JOIN spaces s ON s.id = v.space_id
+       ${where}
+       ORDER BY v.space_id, v.id`,
+    )
+    .all(...params) as SpaceVersionRow[];
+  return rows.map(rowToSpaceVersion);
+}
+
+/** How many queries were recorded before the wording was being kept. */
+export function countQueriesWithoutVersion(): number {
+  const row = connect()
+    .prepare("SELECT COUNT(*) AS n FROM queries WHERE space_version_id IS NULL")
+    .get() as { n: number };
+  return row.n;
 }
 
 type ConversationRow = {
@@ -393,6 +543,13 @@ export function deleteConversation(id: number): void {
  */
 export function recordQuery(args: {
   spaceId: number | null;
+  /**
+   * Which wording was compiled into this query — see `recordSpaceVersion`.
+   * Explicit rather than resolved here: the space could be edited between the
+   * question leaving and the answer arriving, and this column is only worth
+   * having if it names what was actually sent.
+   */
+  spaceVersionId: number | null;
   conversationId: number | null;
   question: string;
   compiled: CompiledQuery;
@@ -406,15 +563,17 @@ export function recordQuery(args: {
     const info = conn
       .prepare(
         `INSERT INTO queries
-           (space_id, conversation_id, turn, question, compiled, result, error, duration_ms)
+           (space_id, space_version_id, conversation_id, turn, question, compiled,
+            result, error, duration_ms)
          VALUES (
-           ?, ?,
+           ?, ?, ?,
            (SELECT COALESCE(MAX(turn), 0) + 1 FROM queries WHERE conversation_id = ?),
            ?, ?, ?, ?, ?
          )`,
       )
       .run(
         args.spaceId,
+        args.spaceVersionId,
         args.conversationId,
         args.conversationId,
         args.question,
@@ -446,6 +605,7 @@ type QueryRow = {
   space_id: number | null;
   space_name: string | null;
   space_icon: string | null;
+  space_version_id: number | null;
   conversation_id: number | null;
   turn: number;
   question: string;
@@ -478,6 +638,7 @@ function rowToQuery(r: QueryRow): QueryRecord {
     spaceId: r.space_id,
     spaceName: r.space_name,
     spaceIcon: r.space_icon,
+    spaceVersionId: r.space_version_id,
     conversationId: r.conversation_id,
     turn: r.turn,
     question: r.question,
