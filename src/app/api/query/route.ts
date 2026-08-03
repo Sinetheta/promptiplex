@@ -5,6 +5,7 @@ import {
   getSpace,
   listTurns,
   recordQuery,
+  recordSpaceVersion,
   setConversationThread,
 } from "@/lib/db";
 import { compile, compileFollowUp } from "@/lib/compile";
@@ -127,6 +128,11 @@ async function run(args: {
   const { space, conversationId, question, compiled } = args;
   const started = Date.now();
 
+  // Taken from the space that was compiled, before anything is sent. Editing a
+  // space mid-request is unlikely, but a column recording which wording was
+  // used is only worth having if it cannot be wrong.
+  const spaceVersionId = recordSpaceVersion(space);
+
   try {
     const provider = await resolveProvider();
 
@@ -153,6 +159,7 @@ async function run(args: {
 
     const { id, turn } = recordQuery({
       spaceId: space.id,
+      spaceVersionId,
       conversationId,
       question,
       compiled: withWarnings,
@@ -177,6 +184,7 @@ async function run(args: {
     const message = (err as Error).message;
     const { turn } = recordQuery({
       spaceId: space.id,
+      spaceVersionId,
       conversationId,
       question,
       compiled,

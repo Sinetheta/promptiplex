@@ -15,6 +15,8 @@ const {
   updateSpace,
   deleteSpace,
   recordQuery,
+  recordSpaceVersion,
+  listSpaceVersions,
   listQueries,
   countSpaces,
   findSpaceByRemoteUuid,
@@ -71,6 +73,7 @@ test("records a successful query and reads it back", () => {
   const s = createSpace(input({ name: "Q" }));
   const { id } = recordQuery({
     spaceId: s.id,
+    spaceVersionId: null,
     conversationId: null,
     question: "chickens?",
     compiled: { text: "Context: c\n\nchickens?", parts: [], warnings: [], filters: { domainsAllow: [], domainsDeny: [] } },
@@ -92,6 +95,7 @@ test("records a failed query so history shows attempts, not just successes", () 
   const s = createSpace(input({ name: "F" }));
   recordQuery({
     spaceId: s.id,
+    spaceVersionId: null,
     conversationId: null,
     question: "x",
     compiled: { text: "x", parts: [], warnings: [], filters: { domainsAllow: [], domainsDeny: [] } },
@@ -108,6 +112,7 @@ test("keeps a deleted space's queries, detaching them", () => {
   const s = createSpace(input({ name: "Doomed" }));
   recordQuery({
     spaceId: s.id,
+    spaceVersionId: null,
     conversationId: null,
     question: "kept?",
     compiled: { text: "kept?", parts: [], warnings: [], filters: { domainsAllow: [], domainsDeny: [] } },
@@ -127,6 +132,7 @@ test("returns queries newest first", () => {
   for (const q of ["first", "second", "third"]) {
     recordQuery({
       spaceId: s.id,
+      spaceVersionId: null,
       conversationId: null,
       question: q,
       compiled: { text: q, parts: [], warnings: [], filters: { domainsAllow: [], domainsDeny: [] } },
@@ -179,6 +185,7 @@ const answer = (text: string, over = {}) => ({
 function addTurn(spaceId: number, conversationId: number, question: string, reply: string) {
   return recordQuery({
     spaceId,
+    spaceVersionId: recordSpaceVersion(getSpace(spaceId)!),
     conversationId,
     question,
     compiled: compiled(question),
@@ -233,6 +240,7 @@ test("a query with no conversation is turn 1, not part of someone else's count",
   const s = createSpace(input({ name: "Loose" }));
   const first = recordQuery({
     spaceId: s.id,
+    spaceVersionId: null,
     conversationId: null,
     question: "loose one",
     compiled: compiled("loose one"),
@@ -242,6 +250,7 @@ test("a query with no conversation is turn 1, not part of someone else's count",
   });
   const second = recordQuery({
     spaceId: s.id,
+    spaceVersionId: null,
     conversationId: null,
     question: "loose two",
     compiled: compiled("loose two"),
@@ -259,6 +268,7 @@ test("a failed turn still occupies its place in the conversation", () => {
   addTurn(s.id, c.id, "q1", "a1");
   recordQuery({
     spaceId: s.id,
+    spaceVersionId: null,
     conversationId: c.id,
     question: "q2",
     compiled: compiled("q2"),
@@ -326,4 +336,100 @@ test("round-trips the remote identifiers", () => {
   const got = getSpace(s.id)!;
   assert.equal(got.remoteUuid, "u1");
   assert.equal(got.remoteSlug, "slug-1");
+});
+
+test("mints one version per distinct wording, and reuses it", () => {
+  const s = createSpace(input({ name: "Versioned", brief: "first wording" }));
+
+  const a = recordSpaceVersion(getSpace(s.id)!);
+  const again = recordSpaceVersion(getSpace(s.id)!);
+  assert.equal(again, a, "the same wording must not mint a second version");
+
+  updateSpace(s.id, input({ name: "Versioned", brief: "second wording" }));
+  const b = recordSpaceVersion(getSpace(s.id)!);
+  assert.notEqual(b, a);
+
+  // Edited back: the queries asked under the first wording stay one group.
+  updateSpace(s.id, input({ name: "Versioned", brief: "first wording" }));
+  assert.equal(recordSpaceVersion(getSpace(s.id)!), a);
+
+  assert.deepEqual(
+    listSpaceVersions(s.id).map((v) => v.brief),
+    ["first wording", "second wording"],
+  );
+});
+
+test("renaming a space does not mint a version, since the name is never sent", () => {
+  const s = createSpace(input({ name: "Before", brief: "unchanged" }));
+  const first = recordSpaceVersion(getSpace(s.id)!);
+
+  updateSpace(s.id, input({ name: "After", brief: "unchanged", icon: "📄" }));
+  assert.equal(recordSpaceVersion(getSpace(s.id)!), first);
+  assert.equal(listSpaceVersions(s.id).length, 1);
+});
+
+test("a version records what the space said, and counts what was asked under it", () => {
+  const s = createSpace(
+    input({ name: "Counted", brief: "old brief", queryTemplate: "old: {q}", domainsAllow: ["a.com"] }),
+  );
+  const v1 = recordSpaceVersion(getSpace(s.id)!);
+  for (const q of ["one", "two"]) {
+    recordQuery({
+      spaceId: s.id,
+      spaceVersionId: v1,
+      conversationId: null,
+      question: q,
+      compiled: { text: q, parts: [], warnings: [], filters: { domainsAllow: [], domainsDeny: [] } },
+      result: null,
+      error: null,
+      durationMs: 1,
+    });
+  }
+
+  updateSpace(s.id, input({ name: "Counted", brief: "new brief", queryTemplate: "new: {q}" }));
+  const v2 = recordSpaceVersion(getSpace(s.id)!);
+  recordQuery({
+    spaceId: s.id,
+    spaceVersionId: v2,
+    conversationId: null,
+    question: "three",
+    compiled: { text: "three", parts: [], warnings: [], filters: { domainsAllow: [], domainsDeny: [] } },
+    result: null,
+    error: null,
+    durationMs: 1,
+  });
+
+  const [older, newer] = listSpaceVersions(s.id);
+  assert.equal(older.brief, "old brief");
+  assert.equal(older.queryTemplate, "old: {q}");
+  assert.deepEqual(older.domainsAllow, ["a.com"]);
+  assert.equal(older.queryCount, 2);
+  assert.ok(older.firstUsedAt && older.lastUsedAt);
+
+  assert.equal(newer.brief, "new brief");
+  assert.equal(newer.queryCount, 1);
+  assert.equal(newer.spaceName, "Counted");
+
+  // The query carries the wording it was compiled from, not the current one.
+  const recorded = listQueries({ spaceId: s.id }).find((q) => q.question === "one");
+  assert.equal(recorded!.spaceVersionId, v1);
+});
+
+test("a deleted space keeps its wording history, detached", () => {
+  const s = createSpace(input({ name: "Departed", brief: "what it said" }));
+  const v = recordSpaceVersion(getSpace(s.id)!);
+  deleteSpace(s.id);
+
+  const kept = listSpaceVersions().find((x) => x.id === v)!;
+  assert.ok(kept, "a version should survive its space");
+  assert.equal(kept.spaceId, null);
+  assert.equal(kept.spaceName, null);
+  assert.equal(kept.name, "Departed", "the snapshot keeps the name it had");
+  assert.equal(kept.brief, "what it said");
+});
+
+test("updating a space that is gone reports it rather than pretending", () => {
+  // What `spaces.mts apply` leans on to avoid writing a rollback entry for an
+  // edit that never landed.
+  assert.equal(updateSpace(999_999, input({ name: "Nobody" })), null);
 });

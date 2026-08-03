@@ -129,3 +129,20 @@ test("backfilling runs once, not again on every connect", () => {
   assert.equal(listConversations().length, 2);
   assert.equal(listSpaces().length, 1);
 });
+
+test("migrating adds the wording column, leaving old queries unattributed", () => {
+  const conn = new Database(dbPath, { readonly: true });
+  const columns = (conn.prepare("PRAGMA table_info(queries)").all() as { name: string }[]).map(
+    (c) => c.name,
+  );
+  const unattributed = conn
+    .prepare("SELECT COUNT(*) AS n FROM queries WHERE space_version_id IS NULL")
+    .get() as { n: number };
+  conn.close();
+
+  assert.ok(columns.includes("space_version_id"), "expected space_version_id");
+
+  // Which wording these two were compiled from is genuinely unknown. Guessing
+  // the space's current text would answer that question incorrectly.
+  assert.equal(unattributed.n, 2);
+});

@@ -104,11 +104,42 @@ export type QueryResult = {
   usage?: SearchUsage;
 };
 
+/**
+ * What a space said, at the time it said it.
+ *
+ * A space is edited over its life, so its id records which space a question was
+ * asked in and not what that space contained. This is the second half: one row
+ * per distinct wording, referenced by every query compiled from it. See
+ * `spaceVersion.ts` for what makes a wording distinct, and `listSpaceVersions`
+ * for reading them back.
+ */
+export type SpaceVersion = {
+  id: number;
+  /** Kept after the space itself is deleted, so old queries stay readable. */
+  spaceId: number | null;
+  /** The space's name today, or null if it is gone. */
+  spaceName: string | null;
+  fingerprint: string;
+  /** The name at the time this wording was minted, which may since have changed. */
+  name: string;
+  brief: string;
+  queryTemplate: string;
+  domainsAllow: string[];
+  domainsDeny: string[];
+  /** How many recorded queries were compiled from this wording. */
+  queryCount: number;
+  firstUsedAt: string | null;
+  lastUsedAt: string | null;
+  createdAt: string;
+};
+
 export type QueryRecord = {
   id: number;
   spaceId: number | null;
   spaceName: string | null;
   spaceIcon: string | null;
+  /** The wording this query was compiled from. Null for queries recorded before versions existed. */
+  spaceVersionId: number | null;
   conversationId: number | null;
   /** 1-based position within the conversation. */
   turn: number;

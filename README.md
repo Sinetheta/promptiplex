@@ -125,6 +125,33 @@ Source preferences are kept out of the query text on purpose. They travel as
 `search_domain_filter`, so the search is constrained rather than asked — and the
 tokens go to your actual question.
 
+Edit spaces in the web UI, or read and rewrite them from the terminal:
+
+```bash
+npm run spaces                       # what you have, at a glance
+npm run spaces -- --json             # every field of every space
+npm run spaces -- apply plan.json    # apply a reviewed set of edits
+npm run spaces -- versions           # every wording a space has been queried under
+```
+
+A space is edited over time, so each query records the exact wording it was
+compiled from. `versions` reads that back with a count per wording — what a
+space has said, and how many questions were asked while it said it.
+
+### Reviewing your spaces
+
+A brief written for a space where instructions are applied once the answer is
+composed reads like a note to the assistant: who to be, how long to answer, what
+tone to take. Put that same text in front of a search and it is also the first
+thing the search sees — a different job, and not one it was written for.
+
+[`.claude/skills/space-review/`](.claude/skills/space-review/SKILL.md) is a
+[Claude Code](https://claude.com/claude-code) skill that reads every space,
+judges the wording as search input, and proposes rewrites as a plan file that
+`npm run spaces -- apply` can apply — with a rollback file written beside it. It
+sends no queries and costs nothing. Without Claude Code it is still a checklist
+worth reading before you write a brief.
+
 ## Conversations
 
 Questions asked in a space are kept together as a conversation, and a follow-up
